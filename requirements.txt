@@ -4,3 +4,9 @@ asgiref~=3.7.2
 httpx~=0.26.0
 python-dotenv==0.18.0
 flask[async]~=2.3.2
+mysql-connector-python==8.2.0
+sqlalchemy==2.0.31
+pymysql==1.1.1
+google-cloud==0.34.0
+cloud-sql-python-connector==1.11.0
+asyncmy==0.2.9
