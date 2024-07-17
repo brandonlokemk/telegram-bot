@@ -67,34 +67,6 @@ ADMIN_CHAT_ID = 566682368 #TODO change
 PORT = 8080
 BOT_TOKEN = os.environ['BOT_TOKEN'] # nosec B105
 
-# Database connection
-# def connect_unix_socket() -> sqlalchemy.engine.base.Engine:
-#     """Initializes a Unix socket connection pool for a Cloud SQL instance of MySQL."""
-#     # Note: Saving credentials in environment variables is convenient, but not
-#     # secure - consider a more secure solution such as
-#     # Cloud Secret Manager (https://cloud.google.com/secret-manager) to help
-#     # keep secrets safe.
-#     db_user = os.environ["DB_USER"]  # e.g. 'my-database-user'
-#     db_pass = os.environ["DB_PASS"]  # e.g. 'my-database-password'
-#     db_name = os.environ["DB_NAME"]  # e.g. 'my-database'
-#     unix_socket_path = os.environ[
-#         "INSTANCE_UNIX_SOCKET"
-#     ]  # e.g. '/cloudsql/project:region:instance'
-
-#     pool = sqlalchemy.create_engine(
-#         # Equivalent URL:
-#         # mysql+pymysql://<db_user>:<db_pass>@/<db_name>?unix_socket=<socket_path>/<cloud_sql_instance_name>
-#         sqlalchemy.engine.url.URL.create(
-#             drivername="mysql+pymysql",
-#             username=db_user,
-#             password=db_pass,
-#             database=db_name,
-#             query={"unix_socket": unix_socket_path},
-#         ),
-#         # ...
-#     )
-#     return pool
-
 # initialize Connector object
 connector = Connector()
 
@@ -124,6 +96,7 @@ AsyncSessionLocal = sessionmaker(bind=async_pool, class_=AsyncSession, expire_on
 
 async def async_test_db():
     async with AsyncSessionLocal() as conn:
+
         user_handle = "Lizzie0111"
         # Execute the query and fetch all results
         results = await conn.execute(
@@ -132,7 +105,7 @@ async def async_test_db():
             )
         )
         agency_profiles = results.fetchall()
-    logger.info(agency_profiles)
+    logger.info(agency_profiles) #
     return agency_profiles
 
 
@@ -171,17 +144,19 @@ class CustomContext(CallbackContext[ExtBot, dict, dict, dict]):
         if isinstance(update, WebhookUpdate):
             return cls(application=application, user_id=update.user_id)
         return super().from_update(update, application)
-
+###########################################################################################################################################################   
 # Bot Commands
+# Start command
 async def start(update: Update, context: CustomContext) -> None:
     """Display a message with instructions on how to use this bot."""
     text = (
         "Welcome to Telegram Jobs Bot! :^).\n"
         "If you need help, please use the /help command!"
     )
-    agency_profs = await async_test_db()
-    await update.message.reply_html(text=str(agency_profs))
+    agency_profs = await async_test_db() #TODO remove later
+    await update.message.reply_html(text=str(agency_profs)) #TODO change text
 
+# Help command
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     '''Displays help messages'''
     payload_url = html.escape(f"{URL}/submitpayload?user_id=<your user id>&payload=<payload>")
@@ -190,8 +165,411 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"To post a custom update, call <code>{payload_url}</code>."
     )
 
-# Verify Payment Command
+# Register command
+#TODO add error/wrong input filtering/handling
 
+NAME, DOB, PAST_EXPERIENCES, CITIZENSHIP, RACE, GENDER, HIGHEST_EDUCATION, WHATSAPP_NUMBER, FULL_NAME, COMPANY_NAME, COMPANY_UEN = range(11)
+
+async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    keyboard = [
+        [
+            InlineKeyboardButton("Applicant", callback_data='applicant'),
+            InlineKeyboardButton("Agency", callback_data='agency'),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text('Please choose your account type:', reply_markup=reply_markup)
+    return NAME
+
+# Handle button clicks
+async def register_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    print("clicked on register button")
+    query = update.callback_query
+    await query.answer()
+
+    user_handle = update.effective_user.username
+    chat_id = update.effective_chat.id
+
+    context.user_data['user_handle'] = user_handle
+    context.user_data['account_type'] = query.data
+    context.user_data['chat_id'] = chat_id
+
+    if query.data == 'applicant':
+        await query.edit_message_text(text="You chose Applicant. Please enter your full name:")
+        context.user_data['registration_step'] = 'name'
+        return NAME
+    elif query.data == 'agency':
+        await query.edit_message_text(text="You chose Agency. Please enter your full name:")
+        context.user_data['registration_step'] = 'full_name'
+        return FULL_NAME
+
+# Define the functions for each step
+async def ask_for_dob(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    print("Entered ask_for_dob")
+    context.user_data['name'] = update.message.text
+    await update.message.reply_text('Please enter your date of birth (YYYY-MM-DD):')
+    context.user_data['registration_step'] = 'dob'
+    return DOB
+
+async def ask_for_past_experiences(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    print("Entered ask_for_past_experiences")
+    context.user_data['dob'] = update.message.text
+    await update.message.reply_text('Please enter your past experiences to improve chances of getting shortlisted:')
+    context.user_data['registration_step'] = 'past_experiences'
+    return PAST_EXPERIENCES
+
+async def ask_for_citizenship(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    print("Entered ask_for_citizenship")
+    context.user_data['past_experiences'] = update.message.text
+    await update.message.reply_text('Please enter your citizenship status:')
+    context.user_data['registration_step'] = 'citizenship'
+    return CITIZENSHIP
+
+async def ask_for_race(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    print("Entered ask_for_race")
+    context.user_data['citizenship'] = update.message.text
+    await update.message.reply_text('Please enter your race:')
+    context.user_data['registration_step'] = 'race'
+    return RACE
+
+async def ask_for_gender(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    print("Entered ask_for_gender")
+    context.user_data['race'] = update.message.text
+    await update.message.reply_text('Please enter your gender:')
+    context.user_data['registration_step'] = 'gender'
+    return GENDER
+
+async def ask_for_highest_education(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    print("Entered ask_for_highest_education")
+    context.user_data['gender'] = update.message.text
+    await update.message.reply_text('Please enter your highest education:')
+    context.user_data['registration_step'] = 'highest_education'
+    return HIGHEST_EDUCATION
+
+async def ask_for_whatsapp_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    print("Entered ask_for_whatsapp_number")
+    context.user_data['highest_education'] = update.message.text
+    await update.message.reply_text('Please enter your WhatsApp number:')
+    context.user_data['registration_step'] = 'whatsapp_number'
+    return WHATSAPP_NUMBER
+
+async def save_applicant(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    print("Entered save_applicant")
+    context.user_data['whatsapp_number'] = update.message.text
+    async with AsyncSessionLocal() as conn:
+        await conn.execute(
+            sqlalchemy.text(
+        f"INSERT INTO applicants (user_handle, name, dob, past_exp, citizenship, race, gender, education, whatsapp_no) VALUES ('{context.user_data['user_handle']}', '{context.user_data['name']}', '{context.user_data['dob']}', '{context.user_data['past_experiences']}', '{context.user_data['citizenship']}', '{context.user_data['race']}', '{context.user_data['gender']}', '{context.user_data['highest_education']}', '{context.user_data['whatsapp_number']}')"
+    )
+        )
+        await conn.commit()
+    await update.message.reply_text('Registration successful!')
+    return ConversationHandler.END
+
+async def ask_for_company_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    print("Entered ask_for_company_name")
+    context.user_data['full_name'] = update.message.text
+    await update.message.reply_text('Please enter your company name:')
+    context.user_data['registration_step'] = 'company_name'
+    return COMPANY_NAME
+
+async def ask_for_company_uen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    print("Entered ask_for_company_uen")
+    context.user_data['company_name'] = update.message.text
+    await update.message.reply_text('Please enter your company UEN:')
+    context.user_data['registration_step'] = 'company_uen'
+    return COMPANY_UEN
+
+async def save_agency(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    print("Entered save_agency")
+    context.user_data['company_uen'] = update.message.text
+    async with AsyncSessionLocal() as conn:
+        await conn.execute(
+            sqlalchemy.text(
+        f"INSERT INTO agencies (user_handle, chat_id, name, agency_name, agency_uen) VALUES ('{context.user_data['user_handle']}', '{context.user_data['chat_id']}', '{context.user_data['full_name']}', '{context.user_data['company_name']}', '{context.user_data['company_uen']}')"
+    )
+        )
+        await conn.commit()
+    await update.message.reply_text('Registration successful!')
+    return ConversationHandler.END
+
+# Main text handler
+async def registration_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    print("entered registration_text_handler")
+    if 'registration_step' in context.user_data:
+        step = context.user_data['registration_step']
+        
+        if 'previous_steps' not in context.user_data:
+            print("entered the first if statement")
+            context.user_data['previous_steps'] = []
+        context.user_data['previous_steps'].append(step)
+        print("STEP:", step)
+        if step == 'name':
+            return await ask_for_dob(update, context)
+        elif step == 'dob':
+            return await ask_for_past_experiences(update, context)
+        elif step == 'past_experiences':
+            return await ask_for_citizenship(update, context)
+        elif step == 'citizenship':
+            return await ask_for_race(update, context)
+        elif step == 'race':
+            return await ask_for_gender(update, context)
+        elif step == 'gender':
+            return await ask_for_highest_education(update, context)
+        elif step == 'highest_education':
+            return await ask_for_whatsapp_number(update, context)
+        elif step == 'whatsapp_number':
+            return await save_applicant(update, context)
+        elif step == 'full_name':
+            return await ask_for_company_name(update, context)
+        elif step == 'company_name':
+            return await ask_for_company_uen(update, context)
+        elif step == 'company_uen':
+            return await save_agency(update, context)
+        
+    print("exited registration_text_handler")
+    return ConversationHandler.END
+    
+
+###########################################################################################################################################################   
+# Edit Profile Command
+
+SELECT_PROFILE, SELECT_ATTRIBUTE, ENTER_NEW_VALUE = range(3)
+
+# Command handler to start editing profile
+async def edit_profile(update: Update, context: CallbackContext) -> int:
+    user_handle = update.effective_user.username
+
+    # Retrieve agency and applicant profiles for the user_handle
+    async with AsyncSessionLocal() as conn:
+        results = await conn.execute(
+            sqlalchemy.text(
+                f"SELECT id, agency_name FROM agencies WHERE user_handle = '{user_handle}'"
+            )
+        )
+        agency_profiles = results.fetchall()
+
+    async with AsyncSessionLocal() as conn:
+        results = await conn.execute(
+            sqlalchemy.text(
+                f"SELECT id, name FROM applicants WHERE user_handle = '{user_handle}'"
+            )
+        )
+        applicant_profiles = results.fetchall()
+
+    # Format profiles as inline buttons
+    keyboard = []
+    for id, agency_name in agency_profiles:
+        keyboard.append([InlineKeyboardButton(f"Agency - {agency_name}", callback_data=f"edit_profile|agency|{id}")])
+
+    for id, applicant_name in applicant_profiles:
+        keyboard.append([InlineKeyboardButton(f"Applicant - {applicant_name}", callback_data=f"edit_profile|applicant|{id}")])
+
+    # Check if both profiles are empty
+    if not agency_profiles and not applicant_profiles:
+        await update.message.reply_text('You have no profiles to edit.')
+        return ConversationHandler.END
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text('Select the profile you want to edit:', reply_markup=reply_markup)
+
+    return SELECT_PROFILE
+
+# Callback function to handle profile selection
+async def select_profile(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        # Extracting profile type and id from callback_data
+        parts = query.data.split('|')
+        profile_type = parts[1]
+        profile_id = parts[2]
+
+        context.user_data['edit_profile_type'] = profile_type
+        context.user_data['edit_profile_id'] = profile_id
+
+        if profile_type == 'agency':
+            keyboard = [
+                [InlineKeyboardButton("Name", callback_data='edit_attribute|agency|name')],
+                [InlineKeyboardButton("Agency Name", callback_data='edit_attribute|agency|agency_name')],
+                [InlineKeyboardButton("Company UEN", callback_data='edit_attribute|agency|company_uen')]
+            ]
+        elif profile_type == 'applicant':
+            keyboard = [
+                [InlineKeyboardButton("Name", callback_data='edit_attribute|applicant|name')],
+                [InlineKeyboardButton("Date of Birth", callback_data='edit_attribute|applicant|dob')],
+                [InlineKeyboardButton("Past Experiences", callback_data='edit_attribute|applicant|past_exp')],
+                [InlineKeyboardButton("Citizenship", callback_data='edit_attribute|applicant|citizenship')],
+                [InlineKeyboardButton("Race", callback_data='edit_attribute|applicant|race')],
+                [InlineKeyboardButton("Gender", callback_data='edit_attribute|applicant|gender')],
+                [InlineKeyboardButton("Highest Education", callback_data='edit_attribute|applicant|education')],
+                [InlineKeyboardButton("WhatsApp Number", callback_data='edit_attribute|applicant|whatsapp')]
+            ]
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text('Select the attribute you want to edit:', reply_markup=reply_markup)
+
+        return SELECT_ATTRIBUTE
+
+    except IndexError:
+        print(f"Error: Malformed callback_data - {query.data}")
+
+    return ConversationHandler.END
+
+# Callback function to handle attribute selection
+async def select_attribute(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        parts = query.data.split('|')
+        profile_type = parts[1]
+        attribute = parts[2]
+
+        context.user_data['edit_attribute'] = attribute
+
+        await query.edit_message_text(f"Please enter the new value for {attribute.replace('_', ' ').title()}:")
+        
+        return ENTER_NEW_VALUE
+
+    except IndexError:
+        print(f"Error: Malformed callback_data - {query.data}")
+
+    return ConversationHandler.END
+
+# Callback function to handle new value input
+async def enter_new_value(update: Update, context: CallbackContext) -> int:
+    new_value = update.message.text
+    profile_type = context.user_data['edit_profile_type']
+    profile_id = context.user_data['edit_profile_id']
+    attribute = context.user_data['edit_attribute']
+
+    try:
+        if profile_type == 'agency':
+            async with AsyncSessionLocal() as conn:
+                await conn.execute(
+                    sqlalchemy.text(
+                f"UPDATE agencies SET {attribute} = '{new_value}' WHERE id = '{profile_id}'"
+                )
+                )
+                await conn.commit()
+
+        elif profile_type == 'applicant':
+            async with AsyncSessionLocal() as conn:
+                await conn.execute(
+                    sqlalchemy.text(
+                f"UPDATE applicants SET {attribute} = '{new_value}' WHERE id = '{profile_id}'"
+                )
+                )
+                await conn.commit()
+        await update.message.reply_text('Profile updated successfully!')
+        context.user_data.clear()  # Clear user data after successful update
+
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")
+        await update.message.reply_text('An error occurred while updating the profile.')
+
+    return ConversationHandler.END
+
+###########################################################################################################################################################   
+# #Job Posting
+#TODO implement forwarding job post to admin and get acknowledgement
+
+SELECT_AGENCY, ENTER_JOB_DETAILS = range(2)
+
+# Function to start job posting
+async def job_post(update: Update, context: CallbackContext) -> int:
+    user_handle = update.effective_user.username
+
+    # Retrieve agency profiles for the user_handle
+    async with AsyncSessionLocal() as conn:
+        # Execute the query and fetch all results
+        results = await conn.execute(
+            sqlalchemy.text(
+               f"SELECT id, name, agency_name FROM agencies WHERE user_handle = '{user_handle}'"
+               )
+        )
+        agency_profiles = results.fetchall()
+
+    if not agency_profiles:
+        await update.message.reply_text('You have no agency profiles to post a job from.')
+        return ConversationHandler.END
+
+    # Format profiles as inline buttons
+    keyboard = [
+        [InlineKeyboardButton(f"{agency[1]} - {agency[2]}", callback_data=f"jobpost|{agency[0]}")]
+        for agency in agency_profiles
+    ]
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text('Select the profile you want to use for job posting:', reply_markup=reply_markup)
+
+    return SELECT_AGENCY
+
+# Callback function to handle profile selection for job posting
+async def jobpost_button(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data['agency_id'] = query.data.split('|')[1]
+    context.user_data['jobpost_step'] = 'job_title'
+
+    await query.edit_message_text('Please enter the Job Title:')
+
+    return ENTER_JOB_DETAILS
+
+# Callback function to handle job posting details input
+async def jobpost_text_handler(update: Update, context: CallbackContext) -> int:
+    text = update.message.text
+
+    if 'jobpost_step' in context.user_data:
+        step = context.user_data['jobpost_step']
+
+        if step == 'job_title':
+            context.user_data['jobpost_job_title'] = text
+            await update.message.reply_text('Please specify the Company or Industry this job belongs to:')
+            context.user_data['jobpost_step'] = 'company_industry'
+
+        elif step == 'company_industry':
+            context.user_data['jobpost_company_industry'] = text
+            await update.message.reply_text('Please provide the Date and Time for this job opportunity:')
+            context.user_data['jobpost_step'] = 'date_time'
+
+        elif step == 'date_time':
+            context.user_data['jobpost_date_time'] = text
+            await update.message.reply_text('Please state the Pay Rate for this job:')
+            context.user_data['jobpost_step'] = 'pay_rate'
+
+        elif step == 'pay_rate':
+            context.user_data['jobpost_pay_rate'] = text
+            await update.message.reply_text('Please describe the Job Scope and responsibilities:')
+            context.user_data['jobpost_step'] = 'job_scope'
+
+        elif step == 'job_scope':
+            context.user_data['jobpost_job_scope'] = text
+            await save_jobpost(context.user_data)
+            await update.message.reply_text('Please note the following:\n\n'
+                                            '1. No MLM jobs\n'
+                                            '2. No SingPass required jobs\n'
+                                            '3. If scam jobs are found, the job post will be deleted, and credits will be revoked without a refund.\n\n'
+                                            'Your job posting has been forwarded to the admin. You will be informed when it has been approved.')
+
+            return ConversationHandler.END
+
+    return ENTER_JOB_DETAILS
+
+async def save_jobpost(user_data):
+    async with AsyncSessionLocal() as conn:
+        await conn.execute(
+            sqlalchemy.text(
+        f"INSERT INTO job_posts (agency_id, job_title, company_industry, date_time, pay_rate, job_scope, shortlist) VALUES ('{user_data['agency_id']}', '{user_data['jobpost_job_title']}', '{user_data['jobpost_company_industry']}', '{user_data['jobpost_date_time']}', '{user_data['jobpost_pay_rate']}', '{user_data['jobpost_job_scope']}', 0)"
+    )
+        )
+        await conn.commit()
+
+###########################################################################################################################################################   
+# Verify Payment Command
 PHOTO_REQUESTED = 1
 async def verifyPayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("LOG: verifyPayment() called")
@@ -254,6 +632,7 @@ async def admin_acknowledge(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     # Notify the user
     await context.bot.send_message(chat_id=query.data, text="Your payment has been acknowledged by an admin!.")
 
+###########################################################################################################################################################   
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels and ends the conversation."""
@@ -265,13 +644,97 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     return ConversationHandler.END
 
-async def createProfile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    '''Creates a profile, user can choose between Agency or Applicant profile'''
-    logger.info(f'{update.message}')
-    username = update.message.username
-    #TODO handle linking username to new profile
+###########################################################################################################################################################   
+# Delete profile
+async def delete_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_handle = update.effective_user.username
+    print(user_handle)
+
+    # Retrieve agency and applicant profiles for the user_handle
+    async with AsyncSessionLocal() as conn:
+        # Execute the query and fetch all results
+        results = await conn.execute(
+            sqlalchemy.text(
+               f"SELECT id,agency_name FROM agencies WHERE user_handle = '{user_handle}'"
+               )
+        )
+        agency_profiles = results.fetchall()
+        print(agency_profiles)
+
+        results = await conn.execute(
+            sqlalchemy.text(
+                f"SELECT id,agency_name FROM agencies WHERE user_handle = '{user_handle}'"
+                )
+        )
+        applicant_profiles = results.fetchall()
+
+    # Format profiles as inline buttons
+    keyboard = []
+        
+    for id, agency_name in agency_profiles:
+        print(id)
+        print(agency_name)
+        keyboard.append([InlineKeyboardButton(f"Agency - {agency_name}", callback_data=f"delete|agency|{id}")])
     
-    await update.message.reply_html()
+    
+    for id, applicant_name in applicant_profiles:
+        print(id)
+        print(applicant_name)
+        keyboard.append([InlineKeyboardButton(f"Applicant - {applicant_name}", callback_data=f"delete|applicant|{id}")])
+
+    # Check if both profiles are empty
+    if not agency_profiles and not applicant_profiles:
+        await update.message.reply_text('You have no profiles to delete.')
+        return
+        
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text('Select the profile you want to delete:', reply_markup=reply_markup)
+    print("exited retrieve function")
+
+# Function to handle button clicks for profile deletion
+async def delete_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    print("entered delete_button_click")
+    query = update.callback_query
+    await query.answer()
+    try:
+        # Extracting profile type and name from callback_data
+        parts = query.data.split('|')
+        action = parts[1]  # First part is the action
+        profile_name = parts[2]  # Remaining parts are profile_name
+        
+        print("profile name but maybe just id: ")    
+        print(profile_name)
+            
+        if action == 'agency':
+            async with AsyncSessionLocal() as conn:
+                await conn.execute(
+                    sqlalchemy.text(
+                    f"DELETE FROM agencies WHERE id = '{profile_name}'"
+                    )
+                )
+                await conn.commit()
+            
+        elif action == 'applicant':
+          async with AsyncSessionLocal() as conn:
+                await conn.execute(
+                    sqlalchemy.text(
+                    f"DELETE FROM applicants WHERE id = '{profile_name}'"
+                    )
+                )
+                await conn.commit()
+
+        await query.edit_message_text("Profile deleted successfully!")
+
+    except IndexError:
+        # Log the error or handle it as appropriate
+        print(f"Error: Malformed callback_data - {query.data}")
+
+    except Exception as e:
+        # Log any other unexpected exceptions
+        print(f"Unexpected error: {str(e)}")
+
+###########################################################################################################################################################   
 
 async def webhook_update(update: WebhookUpdate, context: CustomContext) -> None: # Just to handle custom webhook updates, not a bot command
     """Handle custom updates."""
@@ -284,6 +747,7 @@ async def webhook_update(update: WebhookUpdate, context: CustomContext) -> None:
         f"So far they have sent the following payloads: \n\n• <code>{combined_payloads}</code>"
     )
     await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=text, parse_mode=ParseMode.HTML)
+###########################################################################################################################################################   
 
 # Bot classes
 
@@ -293,15 +757,19 @@ async def main() -> None:
     context_types = ContextTypes(context=CustomContext)
     # Here we set updater to None because we want our custom webhook server to handle the updates
     # and hence we don't need an Updater instance
-    await async_test_db()
+    # await async_test_db()
     application = (
         Application.builder().token(BOT_TOKEN).updater(None).context_types(context_types).build()
     )
 
-    # register handlers
+    # Command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help))
-    # Create the ConversationHandler with states
+    # application.add_handler(CommandHandler("register", register))
+    application.add_handler(CommandHandler("deleteprofile", delete_profile))
+
+
+    # Payment Convo Handler
     payment_handler = ConversationHandler(
         entry_points=[CommandHandler('verifypayment', verifyPayment)],
         states={
@@ -312,8 +780,63 @@ async def main() -> None:
     )
     application.add_handler(payment_handler)
 
+    # Registration Convo Handler
+    registration_conversation_handler = ConversationHandler(
+    entry_points=[CommandHandler('register', register)],
+    states={
+        NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+        DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+        PAST_EXPERIENCES: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+        CITIZENSHIP: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+        RACE: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+        GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+        HIGHEST_EDUCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+        WHATSAPP_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+        FULL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+        COMPANY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+        COMPANY_UEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)]
+    },
+    fallbacks=[]
+)
+    application.add_handler(registration_conversation_handler)
+   
+# Edit profile convo handler
+    edit_profile_handler = ConversationHandler(
+        entry_points=[CommandHandler('editprofile', edit_profile)],
+        states={
+            SELECT_PROFILE: [CallbackQueryHandler(select_profile)],
+            SELECT_ATTRIBUTE: [CallbackQueryHandler(select_attribute)],
+            ENTER_NEW_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_new_value)],
+        },
+        fallbacks=[]
+    )
+    application.add_handler(edit_profile_handler)
+
+# Job post convo handler
+    job_post_handler = ConversationHandler(
+    entry_points=[CommandHandler('jobpost', job_post)],
+    states={
+        SELECT_AGENCY: [CallbackQueryHandler(jobpost_button)],
+        ENTER_JOB_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, jobpost_text_handler)],
+    },
+    fallbacks=[]
+)
+    
+    application.add_handler(job_post_handler)
+    
+
+
+
+    # CallbackQueryHandlers
+    application.add_handler(CallbackQueryHandler(delete_button, pattern='^delete\\|'))
+    application.add_handler(CallbackQueryHandler(register_button, pattern='^(applicant|agency)$'))
+    application.add_handler(CallbackQueryHandler(admin_acknowledge)) #TODO change to trasnaction ID pattern
+
+    # Message Handler
+    ## NIL ##
+
+    # Misc
     application.add_handler(TypeHandler(type=WebhookUpdate, callback=webhook_update))
-    application.add_handler(CallbackQueryHandler(admin_acknowledge))
     
 
     # Pass webhook settings to telegram
