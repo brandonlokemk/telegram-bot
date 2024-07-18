@@ -868,49 +868,10 @@ async def cancel(update: Update, context: CallbackContext) -> int:
 
 ###########################################################################################################################################################   
 # Purchase tokens
-SELECTING_AGENCY, SELECTING_PACKAGE, CONFIRMING_PAYMENT = range(3)
 
-async def select_agency(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_handle = update.effective_user.username
-    print("user handle:", user_handle)
+SELECTING_PACKAGE, CONFIRMING_PAYMENT = range(2)
 
-    # Retrieve agency profiles for the user
-    async with AsyncSessionLocal() as conn:
-        results = await conn.execute(
-            sqlalchemy.text(
-                f"SELECT id, name, agency_name FROM agencies WHERE user_handle = '{user_handle}'")
-        )
-        agency_profiles = results.fetchall()
-
-    # Check if there are no agency profiles available
-    if not agency_profiles:
-        await update.message.reply_text('No agency profiles available.')
-        return ConversationHandler.END
-
-    # Format agency profiles as inline buttons
-    keyboard = []
-    for agency in agency_profiles:
-        agency_id, name, agency_name = agency
-        keyboard.append([InlineKeyboardButton(f"{name} - {agency_name}", callback_data=f"select_agency|{agency_id}")])
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Please select an agency profile:", reply_markup=reply_markup)
-
-    return SELECTING_AGENCY
-
-async def agency_selection(update: Update, context: CallbackContext) -> int:
-    query = update.callback_query
-    await query.answer()
-    agency_id = query.data.split('|')[1]
-
-    # Store the selected agency_id in the user context
-    context.user_data['agency_id'] = agency_id
-
-    await query.edit_message_text("Agency profile selected. Now, please select a token package.")
-
-    return await purchasetokens(update, context, callback_query=True)
-
-async def purchasetokens(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_query=False) -> int:
+async def purchasetokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_handle = update.effective_user.username
 
     # Retrieve token packages from the database
@@ -939,10 +900,7 @@ async def purchasetokens(update: Update, context: ContextTypes.DEFAULT_TYPE, cal
     package_info += "<b><u>Token Usage</u></b>\n\n"
     package_info += "<b>3 additional shortlist = </b> 5 tokens\n<b>1 post (+3 shortlist) =</b> 45 tokens \n<b>Repost posting (+3 shortlist) =</b> 30 tokens \n\nPlease select a package:"
     reply_markup = InlineKeyboardMarkup(keyboard)
-    if callback_query:
-        await update.callback_query.message.reply_text(package_info, reply_markup=reply_markup, parse_mode='HTML')
-    else:
-        await update.message.reply_text(package_info, reply_markup=reply_markup, parse_mode='HTML')
+    await update.message.reply_text(package_info, reply_markup=reply_markup, parse_mode='HTML')
 
     return SELECTING_PACKAGE
 
@@ -952,107 +910,33 @@ async def package_selection(update: Update, context: CallbackContext) -> int:
     package_id = query.data.split('|')[1]
 
     # Store the selected package_id in the user context
-    context.user_data['package_id'] = package_id
     context.user_data['selected_package_id'] = package_id
 
     # Fetch package details from the database
     async with AsyncSessionLocal() as conn:
         results = await conn.execute(
             sqlalchemy.text(
-                f"SELECT package_name, number_of_tokens, price, description FROM token_packages WHERE package_id = '{package_id}'"
-            )
+                "SELECT package_name, number_of_tokens, price, description FROM token_packages WHERE package_id = :package_id"
+            ).params(package_id=package_id)
         )
         package = results.fetchone()
 
     if package:
         package_name, tokens, price, description = package
-        context.user_data['package_name'] = package_name
         context.user_data['package_price'] = price
         context.user_data['package_tokens'] = tokens
         context.user_data['package_description'] = description
 
-        confirmation_message = f"You have picked {package_name}: {description}\n\nYou are required to pay ${price} for {tokens} tokens.\n\nPlease make the payment and send a screenshot."
+        confirmation_message = f"You have picked the package: {description}\n\nYou are required to pay ${price} for {tokens} tokens.\n\nPlease make the payment and send a screenshot."
         await query.edit_message_text(confirmation_message)
 
         # Send a photo
         photo_path = "paynow_qrcode.jpg"
         await query.message.reply_photo(photo=open(photo_path, 'rb'))
-
+        
     print("ending convo handler")
     return ConversationHandler.END
 
-
-
-
-
-# SELECTING_PACKAGE, CONFIRMING_PAYMENT = range(2)
-
-# async def purchasetokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-#     user_handle = update.effective_user.username
-
-#     # Retrieve token packages from the database
-#     async with AsyncSessionLocal() as conn:
-#         results = await conn.execute(
-#             sqlalchemy.text(
-#                 "SELECT package_id, package_name, number_of_tokens, price, description FROM token_packages"
-#             )
-#         )
-#         token_packages = results.fetchall()
-
-#     # Format packages as inline buttons
-#     keyboard = []
-#     package_info = "<u><b>Packages:</b></u>\n\n"
-#     for package in token_packages:
-#         package_id, package_name, tokens, price, description = package
-#         package_info += f"<b>{package_name}</b>:\n{description}\n\n"
-#         keyboard.append([InlineKeyboardButton(package_name, callback_data=f"select_package|{package_id}")])
-
-#     # Check if there are no packages available
-#     if not token_packages:
-#         await update.message.reply_text('No token packages available.')
-#         return ConversationHandler.END
-
-#     # Add static package info
-#     package_info += "<b><u>Token Usage</u></b>\n\n"
-#     package_info += "<b>3 additional shortlist = </b> 5 tokens\n<b>1 post (+3 shortlist) =</b> 45 tokens \n<b>Repost posting (+3 shortlist) =</b> 30 tokens \n\nPlease select a package:"
-#     reply_markup = InlineKeyboardMarkup(keyboard)
-#     await update.message.reply_text(package_info, reply_markup=reply_markup, parse_mode='HTML')
-
-#     return SELECTING_PACKAGE
-
-
-# async def package_selection(update: Update, context: CallbackContext) -> int:
-#     query = update.callback_query
-#     await query.answer()
-#     package_id = query.data.split('|')[1]
-
-#     # Store the selected package_id in the user context
-#     context.user_data['selected_package_id'] = package_id
-
-#     # Fetch package details from the database
-#     async with AsyncSessionLocal() as conn:
-#         results = await conn.execute(
-#             sqlalchemy.text(
-#                 "SELECT package_name, number_of_tokens, price, description FROM token_packages WHERE package_id = :package_id"
-#             ).params(package_id=package_id)
-#         )
-#         package = results.fetchone()
-
-#     if package:
-#         package_name, tokens, price, description = package
-#         context.user_data['package_price'] = price
-#         context.user_data['package_tokens'] = tokens
-#         context.user_data['package_description'] = description
-
-#         confirmation_message = f"You have picked the package: {description}\n\nYou are required to pay ${price} for {tokens} tokens.\n\nPlease make the payment and send a screenshot."
-#         await query.edit_message_text(confirmation_message)
-
-#         # Send a photo
-#         photo_path = "paynow_qrcode.jpg"
-#         await query.message.reply_photo(photo=open(photo_path, 'rb'))
-        
-#     print("ending convo handler")
-#     return ConversationHandler.END
 ###########################################################################################################################################################
 # Get Grp ChatID and send message to group
 async def get_chat_id(update: Update, context: CallbackContext) -> None:
@@ -1187,30 +1071,18 @@ async def main() -> None:
     },
     fallbacks=[CommandHandler('cancel', cancel)]
 )
-
-
     application.add_handler(delete_package_handler)
 
 
 # Purchasing tokens convo handler
     purchase_tokens_handler = ConversationHandler(
-        entry_points=[CommandHandler('purchasetokens', select_agency)],
-        states={
-            SELECTING_AGENCY: [CallbackQueryHandler(agency_selection, pattern='^select_agency\|')],
-            SELECTING_PACKAGE: [CallbackQueryHandler(package_selection, pattern='^select_package\|')]
-        },
-        fallbacks=[CommandHandler('cancel', cancel)]
+    entry_points=[CommandHandler('purchasetokens', purchasetokens)],
+    states={
+        SELECTING_PACKAGE: [CallbackQueryHandler(package_selection)],
+    },
+    fallbacks=[CommandHandler('cancel', cancel)]
     )
     application.add_handler(purchase_tokens_handler)
-
-    # purchase_tokens_handler = ConversationHandler(
-    # entry_points=[CommandHandler('purchasetokens', purchasetokens)],
-    # states={
-    #     SELECTING_PACKAGE: [CallbackQueryHandler(package_selection)],
-    # },
-    # fallbacks=[CommandHandler('cancel', cancel)]
-    # )
-    # application.add_handler(purchase_tokens_handler)
 
     # CallbackQueryHandlers
     application.add_handler(CallbackQueryHandler(delete_button, pattern='^delete\\|'))
