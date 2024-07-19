@@ -16,10 +16,10 @@ Press Ctrl-C on the command line or send a signal to the process to stop the bot
 import os
 import mysql
 import mysql.connector
-
 import asyncio
 import traceback
 import pymysql
+from datetime import datetime, timedelta
 from typing import Callable
 from google.cloud.sql.connector import Connector, IPTypes
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -64,6 +64,8 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
+
+
 
 # Define configuration constants
 URL = os.environ['CLOUD_URL']
@@ -112,7 +114,7 @@ async def get_db_fetchone(query_string: str):
         async with AsyncSessionLocal() as conn:
             results = await conn.execute(sqlalchemy.text(query_string))
             data = results.fetchone()
-            logging.info(f"Results from query: {data}")
+            logger.info(f"Results from query: {data}")
             return data
     except Exception as e:
         logger.info(f"Error in interacting with database: {e}")
@@ -132,7 +134,7 @@ async def get_db(query_string: str):
         async with AsyncSessionLocal() as conn:
             results = await conn.execute(sqlalchemy.text(query_string))
             data = results.fetchall()
-            logging.info(f"Results from query: {data}")
+            logger.info(f"Results from query: {data}")
             return data
     except Exception as e:
         logger.info(f"Error in interacting with database: {e}")
@@ -147,7 +149,7 @@ async def set_db(query_string: str):
         logger.info(f"Error in interacting with database: {e}")
     
 
-async def async_test_db():
+async def async_test_db(): #TODO remove
     user_handle = "brandonlmk"
     query_string = f"SELECT id, agency_name FROM agencies WHERE user_handle = '{user_handle}'"
     agency_profiles = await get_db(query_string)
@@ -155,7 +157,7 @@ async def async_test_db():
     return agency_profiles
 
 
-def test_db():
+def test_db(): #TODO remove
     with pool.connect() as conn:
         user_handle = "Lizzie0111"
         # Execute the query and fetch all results
@@ -614,223 +616,9 @@ async def save_jobpost(user_data):
     )
         )
         await conn.commit()
-###########################################################################################################################################################   
-# Top Up Tokens Command
-
-
 
 ###########################################################################################################################################################   
-# Package purchase process
-async def create_transaction_entry(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id = None, package_id = None):
-    """
-    Creates a new entry with [status = pending] in the database transactions table with the Chat ID and Package ID provided.
-    This is done after the agency has sent their payment screenshot.
-
-    Args:
-        chat_id (str): Chat ID of agency which purchased the package
-        package_id (str): ID of package purchases by agency
-
-    Return:
-        transaction_id (int): ID of newly created transaction
-    """    
-    # uuid, package_id = str(agency_id), str(package_id)
-    # agency_id, package_id = 'd845af72-439b-11ef-8a7f-42010a400002', '12'
-    chat_id = str(ADMIN_CHAT_ID)
-    package_id = '12'
-    # Create entry in transaction table of DB
-    logger.info(f"LOG: Creating a row in transaction DB table with Chat ID: {chat_id}, Package ID: {package_id}")
-    query_string = f"INSERT INTO transactions (chat_id, package_id) VALUES ('{chat_id}', '{package_id}')"
-    await set_db(query_string)
-    # Get transaction ID of the newly created entry
-    query_string = f"SELECT transaction_id FROM transactions WHERE chat_id = '{chat_id}' ORDER BY transaction_id DESC LIMIT 1"
-    results = await get_db_fetchone(query_string)
-    transaction_id = results[0]
-    logger.info(f"LOG: Transaction created - ID: {transaction_id}")
-    context.user_data['transaction_id'] = transaction_id
-    await update.message.reply_text("Transaction created!")
-    return transaction_id
-
-PHOTO_REQUESTED = 1
-async def verifyPayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Requests for screenshot of payment from Agency and calls the admin acknowledgement function
-
-    Args:
-        package_id: Package ID which agency wants to purchase
-    """    
-    chat_id = update.effective_chat.id
-    package_id = '12'
-    logger.info("LOG: verifyPayment() called")
-    if update.message.photo:
-        logger.info("LOG: photo received")
-        # Get the largest photo size
-        photo = update.message.photo[-1].file_id
-        context.user_data['photo'] = photo
-        transaction_id = await create_transaction_entry(update, context, chat_id=chat_id, package_id=package_id)
-        await update.message.reply_text(
-            "Thank you! Now, I will forward this screenshot to the admin."
-        )
-        return await forward_to_admin_for_acknowledgement(update, context, message_type='image', message=photo, transaction_id=transaction_id)
-    else:
-        await update.message.reply_text(
-            "Please upload a screenshot."
-        )
-        return PHOTO_REQUESTED
-
-async def forward_to_admin_for_acknowledgement(update: Update, context: ContextTypes.DEFAULT_TYPE, message_type: str, message, transaction_id):
-    """
-    Send a copy of the message/screenshot to an admin for acknowledgement.
-    Users can continue interacting with the bot while waiting for response
-
-    Args:
-        update (Update): _description_
-        context (ContextTypes.DEFAULT_TYPE): _description_
-        message_type (str): 'text' or 'image'
-        id: Transaction ID if payment (image) or Job Posts ID if post (text)
-    """    
-    logger.info(f"get_admin_acknowledgement() called, forwarding a {message_type} to USER {ADMIN_CHAT_ID}")
-    if message_type == 'image':
-        photo = message
-        query_string = f"SELECT chat_id, package_id FROM transactions WHERE transaction_id = '{transaction_id}'"
-        results = await get_db(query_string)
-        logger.info(f"Results: {results}")
-        chat_id, package_id = results[0] # unpack tuple
-        # Set callback data from ID provided
-        ss_accept_callback_data = f"ss_accept_{transaction_id}" # Callbackdata has fixed format: ss_<transaction_ID> (screenshot) or jp_<transaction_ID> (job post)
-        ss_reject_callback_data = f"ss_reject_{transaction_id}"
-        logger.info(f"Callback data: {ss_accept_callback_data}, {ss_reject_callback_data}")
-        keyboard = [
-            [InlineKeyboardButton("Approve", callback_data=ss_accept_callback_data)],
-            [InlineKeyboardButton("Reject", callback_data=ss_reject_callback_data)]
-        ] # Can check transaction ID if need details
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await context.bot.send_photo(
-            chat_id=ADMIN_CHAT_ID,
-            photo=photo,
-            caption=f"Dear Admin, purchase made by {chat_id} for Package {package_id}", #TODO add details regarding transaction
-            reply_markup=reply_markup
-        )
-        # pass
-        await update.message.reply_text(
-        "Photo forwarded to admin."
-    )
-    else:
-        await update.message.reply_text(
-            "No screenshot submission found."
-        )
-    # End the conversation
-    return ConversationHandler.END
-
-
-async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    CallbackHandler for the acknowledgement button when messages or screenshots are forwarded to the admin.
-    This gets called when the function is pressed
-    Callbackdata has fixed format: ss_accept_<ID> / ss_reject_<ID> (screenshot) or jp_accept_<ID> / jp_reject_<ID? (job post)
-    Args:   
-        update (Update): _description_
-        context (ContextTypes.DEFAULT_TYPE): _description_
-    """  
-    # Get callback query data (e.g. ss_accept_<ID>)
-    logger.info("Approve/Reject button pressed")
-    query = update.callback_query
-    logger.info(f'Callback query data: {query.data}')
-    query_data = query.data
-    # Check which query data it is (which button admin pressed)
-    if query_data.startswith('ss_'): 
-        logger.info("SS query found")
-        # Getting admin response as well as transaction ID
-        status, transaction_id = query_data.split('_')[1:]
-        # Select chat_id based on transaction_id
-        query_string = f"SELECT chat_id FROM transactions WHERE transaction_id = '{transaction_id}'"
-        results = await get_db(query_string)
-        logger.info(f"Results: {results}")
-        chat_id = results[0][0]
-        # # Get chat id from agency id
-        # query_string = f"SELECT chat_id FROM agencies WHERE id = '{agency_id}'"
-        # results = await get_db(query_string)
-        # chat_id = results[0][0]
-
-        if status == 'accept':
-            # Update transaction entry status to 'Approved'
-            query_string = f"UPDATE transactions SET status = 'Approved' WHERE transaction_id = '{transaction_id}'"
-            await set_db(query_string)
-            logger.info(f"Approved {transaction_id} in database!")
-            await query.answer()  # Acknowledge the callback query to remove the loading state
-
-            
-            # Edit the caption of the photo message
-            await query.edit_message_caption(caption="You have acknowledged the screenshot.\nCredits have been transferred.")
-            
-            # Notify the user
-            await context.bot.send_message(chat_id=chat_id, text="Your payment has been acknowledged by an admin!.")
-        
-        elif status == 'reject':
-            # Update transaction entry status to 'Rejected'
-            query_string = f"UPDATE transactions SET status = 'rejected' WHERE transaction_id = '{transaction_id}'"
-            await set_db(query_string)
-            logger.info(f"Rejected {transaction_id} in database!")
-            await query.answer()  # Acknowledge the callback query to remove the loading state
-
-            
-            # Edit the caption of the photo message
-            await query.edit_message_caption(caption="You have rejected the screenshot.\nUser will be notified")
-            
-            # Notify the user
-            await context.bot.send_message(chat_id=chat_id, text="Your payment has been rejected by an admin. Please PM admin for more details")
-
-
-
-
-
-
-# async def forward_photo_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-#     logger.info("LOG: forward_photo_to_admin() called")
-#     if 'photo' in context.user_data:
-#         # Forward photo to admin
-#         photo = context.user_data['photo']
-#         logger.info(f"CHAT ID: {update.message.chat.id}, TYPE: {type(update.message.chat.id)}")
-#         # Create an inline keyboard button for acknowledgment with user chat ID in the callback data
-#         keyboard = [[InlineKeyboardButton("Acknowledge", callback_data=str(update.message.chat.id))]]
-#         reply_markup = InlineKeyboardMarkup(keyboard)
-#         await context.bot.send_photo(
-#             chat_id=ADMIN_CHAT_ID,
-#             photo=photo,
-#             caption="Dear admin, please acknowledge this photo", #TODO add details regarding transaction
-#             reply_markup=reply_markup
-#         )
-
-#         await update.message.reply_text(
-#             "Photo forwarded to admin."
-#         )
-#     else:
-#         await update.message.reply_text(
-#             "No screenshot submission found."
-#         )
-#     # End the conversation
-#     return ConversationHandler.END
-    
-
-# async def admin_acknowledge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-#     logger.info(f"Update: {update}")
-#     logger.info(f"Context USER DATA: {context.user_data}")
-
-#     query = update.callback_query
-#     logger.info(f'Query data: {query.data}')
-#     await query.answer()  # Acknowledge the callback query to remove the loading state
-
-#     # Get transaction details
-#     # agency_id = myTransaction.agency_id
-
-    
-#     # Edit the caption of the photo message
-#     await query.edit_message_caption(caption="You have acknowledged the photo.")
-    
-#     # Notify the user
-#     await context.bot.send_message(chat_id=query.data, text="Your payment has been acknowledged by an admin!.")
-
-###########################################################################################################################################################   
-
+# Cancel
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels and ends the conversation."""
     user = update.message.from_user
@@ -936,6 +724,7 @@ async def delete_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 PACKAGE_NAME, NUMBER_OF_TOKENS, PRICE, DESCRIPTION = range(4)
 
 # Function to handle /addpackage command
+#TODO add validity field for admin to fill
 async def add_package(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Please enter the package name:")
     return PACKAGE_NAME
@@ -999,6 +788,7 @@ async def description_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 SELECT_PACKAGE, CONFIRM_DELETE = range(2)
 
 # Function to handle /deletepackage command
+#TODO remove constraints in DB
 async def delete_package(update: Update, context: CallbackContext) -> int:
     try:
         async with AsyncSessionLocal() as conn:
@@ -1065,16 +855,25 @@ async def cancel(update: Update, context: CallbackContext) -> int:
 ###########################################################################################################################################################   
 # Purchase tokens
 
-SELECTING_PACKAGE, CONFIRMING_PAYMENT = range(2)
+SELECTING_PACKAGE, PHOTO_REQUESTED = range(2)
 
 async def purchasetokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_handle = update.effective_user.username
+    """
+    Entry command for user to purchase token packages
+    Provides user with package details
 
+    Args:
+        update (Update): _description_
+        context (ContextTypes.DEFAULT_TYPE): _description_
+
+    Returns:
+        int: returns new state for convo handler
+    """    
     # Retrieve token packages from the database
     async with AsyncSessionLocal() as conn:
         results = await conn.execute(
             sqlalchemy.text(
-                "SELECT package_id, package_name, number_of_tokens, price, description FROM token_packages"
+                "SELECT package_id, package_name, number_of_tokens, price, description, validity FROM token_packages"
             )
         )
         token_packages = results.fetchall()
@@ -1083,7 +882,8 @@ async def purchasetokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     keyboard = []
     package_info = "<u><b>Packages:</b></u>\n\n"
     for package in token_packages:
-        package_id, package_name, tokens, price, description = package
+        package_id, package_name, tokens, price, description, validity = package
+        #TODO add validity to package_info
         package_info += f"<b>{package_name}</b>:\n{description}\n\n"
         keyboard.append([InlineKeyboardButton(package_name, callback_data=f"select_package|{package_id}")])
 
@@ -1101,6 +901,16 @@ async def purchasetokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return SELECTING_PACKAGE
 
 async def package_selection(update: Update, context: CallbackContext) -> int:
+    """
+     Saves chosen package in context.user_data['selected_package_id']
+
+    Args:
+        update (Update): _description_
+        context (CallbackContext): _description_
+
+    Returns:
+        int: State for convo handler
+    """    
     query = update.callback_query
     await query.answer()
     package_id = query.data.split('|')[1]
@@ -1130,8 +940,222 @@ async def package_selection(update: Update, context: CallbackContext) -> int:
         photo_path = "paynow_qrcode.jpg"
         await query.message.reply_photo(photo=open(photo_path, 'rb'))
         
-    print("ending convo handler")
+    # return ConversationHandler.END
+    return PHOTO_REQUESTED
+
+async def create_transaction_entry(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id = None, package_id = None):
+    """
+    Creates a new entry with [status = pending] in the database transactions table with the Chat ID and Package ID provided.
+    This is done after the agency has sent their payment screenshot.
+
+    Args:
+        chat_id (str): Chat ID of agency which purchased the package
+        package_id (str): ID of package purchases by agency
+
+    Return:
+        transaction_id (int): ID of newly created transaction
+    """    
+    # Create entry in transaction table of DB
+    logger.info(f"LOG: Creating a row in transaction DB table with Chat ID: {chat_id}, Package ID: {package_id}")
+    query_string = f"INSERT INTO transactions (chat_id, package_id) VALUES ('{chat_id}', '{package_id}')"
+    await set_db(query_string)
+    # Get transaction ID of the newly created entry
+    query_string = f"SELECT transaction_id FROM transactions WHERE chat_id = '{chat_id}' ORDER BY transaction_id DESC LIMIT 1"
+    results = await get_db_fetchone(query_string)
+    transaction_id = results[0]
+    logger.info(f"LOG: Transaction created - ID: {transaction_id}")
+    context.user_data['transaction_id'] = transaction_id
+    await update.message.reply_text("Transaction created!")
+    return transaction_id
+
+async def verifyPayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Requests for screenshot of payment from Agency
+    Calls create_transaction_entry() upon recieving screenshot
+    Then calls the forward_to_admin_for_acknowledgement()
+
+    Args:
+        package_id: Package ID which agency wants to purchase
+    """    
+    chat_id = update.effective_chat.id
+    package_id = context.user_data['selected_package_id']
+    logger.info("LOG: verifyPayment() called")
+    if update.message.photo:
+        logger.info("LOG: photo received")
+        # Get the largest photo size
+        photo = update.message.photo[-1].file_id
+        context.user_data['photo'] = photo
+        transaction_id = await create_transaction_entry(update, context, chat_id=chat_id, package_id=package_id)
+        await update.message.reply_text(
+            "Thank you! Now, I will forward this screenshot to the admin."
+        )
+        return await forward_to_admin_for_acknowledgement(update, context, message_type='image', message=photo, transaction_id=transaction_id)
+    else:
+        await update.message.reply_text(
+            "Please upload a screenshot."
+        )
+        return PHOTO_REQUESTED
+
+async def forward_to_admin_for_acknowledgement(update: Update, context: ContextTypes.DEFAULT_TYPE, message_type: str, message, transaction_id):
+    """
+    Send a copy of the message/screenshot to an admin for acknowledgement.
+    Users can continue interacting with the bot while waiting for response
+
+    Args:
+        update (Update): _description_
+        context (ContextTypes.DEFAULT_TYPE): _description_
+        message_type (str): 'text' or 'image'
+        id: Transaction ID if payment (image) or Job Posts ID if post (text)
+    """    
+    logger.info(f"get_admin_acknowledgement() called, forwarding a {message_type} to USER {ADMIN_CHAT_ID}")
+    if message_type == 'image':
+        photo = message
+        query_string = f"SELECT chat_id, package_id FROM transactions WHERE transaction_id = '{transaction_id}'"
+        results = await get_db(query_string)
+        logger.info(f"Results: {results}")
+        chat_id, package_id = results[0] # unpack tuple
+        # Set callback data from ID provided
+        ss_accept_callback_data = f"ss_accept_{transaction_id}" # Callbackdata has fixed format: ss_<transaction_ID> (screenshot) or jp_<transaction_ID> (job post)
+        ss_reject_callback_data = f"ss_reject_{transaction_id}"
+        logger.info(f"Callback data: {ss_accept_callback_data}, {ss_reject_callback_data}")
+        keyboard = [
+            [InlineKeyboardButton("Approve", callback_data=ss_accept_callback_data)],
+            [InlineKeyboardButton("Reject", callback_data=ss_reject_callback_data)]
+        ] # Can check transaction ID if need details
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await context.bot.send_photo(
+            chat_id=ADMIN_CHAT_ID,
+            photo=photo,
+            caption=f"Dear Admin, purchase made by {chat_id} for Package {package_id}", #TODO add details regarding transaction
+            reply_markup=reply_markup
+        )
+        # pass
+        await update.message.reply_text(
+        "Photo forwarded to admin."
+    )
+    else:
+        await update.message.reply_text(
+            "No screenshot submission found."
+        )
+    # End the conversation
     return ConversationHandler.END
+
+
+async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    CallbackHandler for the acknowledgement button when messages or screenshots are forwarded to the admin.
+
+    Request admin to approve/reject transaction.
+    If transaction is approved, calls update_balance() for chat_id to allocate credits.
+    Alerts users when credits are allocated.
+
+    This gets called when the button is pressed.
+    Callbackdata has fixed format: ss_accept_<ID> / ss_reject_<ID> (screenshot) or jp_accept_<ID> / jp_reject_<ID? (job post)
+
+    Args:   
+        update (Update): _description_
+        context (ContextTypes.DEFAULT_TYPE): _description_
+    """  
+    # Get callback query data (e.g. ss_accept_<ID>)
+    logger.info("Approve/Reject button pressed")
+    query = update.callback_query
+    logger.info(f'Callback query data: {query.data}')
+    query_data = query.data
+    # Check which query data it is (which button admin pressed)
+    if query_data.startswith('ss_'): 
+        logger.info("SS query found")
+        # Getting admin response as well as transaction ID
+        status, transaction_id = query_data.split('_')[1:]
+        # Select chat_id based on transaction_id
+        query_string = f"SELECT chat_id, package_id FROM transactions WHERE transaction_id = '{transaction_id}'"
+        results = await get_db(query_string)
+        logger.info(f"Results: {results}")
+        chat_id, package_id = results[0]
+        # # Get chat id from agency id
+        # query_string = f"SELECT chat_id FROM agencies WHERE id = '{agency_id}'"
+        # results = await get_db(query_string)
+        # chat_id = results[0][0]
+
+        if status == 'accept':
+            # Update transaction entry status to 'Approved'
+            query_string = f"UPDATE transactions SET status = 'Approved' WHERE transaction_id = '{transaction_id}'"
+            await set_db(query_string)
+            logger.info(f"Approved {transaction_id} in database!")
+            # Update balance of user account
+            (new_balance, exp_date) = await update_balance(chat_id=chat_id, package_id=package_id)
+            exp_date = exp_date.date()
+            await query.answer()  # Acknowledge the callback query to remove the loading state
+
+            
+            # Edit the caption of the photo message
+            await query.edit_message_caption(caption="You have acknowledged the screenshot.\nCredits have been transferred.")
+            
+            # Notify the user
+            await context.bot.send_message(chat_id=chat_id, text=f"Your payment has been acknowledged by an admin!.\n\nYour new token balance is: {new_balance}\nExpiring on: {exp_date}")
+        
+        elif status == 'reject':
+            # Update transaction entry status to 'Rejected'
+            query_string = f"UPDATE transactions SET status = 'rejected' WHERE transaction_id = '{transaction_id}'"
+            await set_db(query_string)
+            logger.info(f"Rejected {transaction_id} in database!")
+            await query.answer()  # Acknowledge the callback query to remove the loading state
+
+            
+            # Edit the caption of the photo message
+            await query.edit_message_caption(caption="You have rejected the screenshot.\nUser will be notified")
+            
+            # Notify the user
+            await context.bot.send_message(chat_id=chat_id, text="Your payment has been rejected by an admin. Please PM admin for more details")
+
+
+async def update_balance(chat_id, package_id):
+    """
+    Updates account balance in database for newly purchased package
+    Returns:
+        Updated balance of account
+    """    
+    # Check number of tokens and validity of purchased package, validity is in days
+    query_string = f"SELECT number_of_tokens,validity FROM token_packages WHERE package_id = '{package_id}'"
+    results = await get_db(query_string)
+    package_tokens, validity = results[0]
+    # Check if user chat_id has row in token_balance table for db
+    query_string = f"SELECT EXISTS (SELECT 1 FROM token_balance WHERE chat_id = '{chat_id}')"
+    results = await get_db(query_string)
+    # Calculate new expiry date
+    curr_date = datetime.now()
+    new_date = curr_date + timedelta(days=validity)
+    # If have existing entry
+    logger.info(f"Chat ID is already in token_balance table: {results}")
+    if (results[0][0]):
+        # Get balance and current expiry date of tokens
+        query_string = f"SELECT tokens, exp_date FROM token_balance WHERE chat_id = '{chat_id}'"
+        results = await get_db(query_string)
+        curr_tokens, curr_exp_date = results[0]
+        # Calculate new tokens
+        new_balance = curr_tokens + package_tokens
+        # If extended date is longer than current exp date, updates both token balance and exp date of chat_id
+        if new_date > curr_exp_date:
+            query_string = f"UPDATE token_balance SET tokens = '{new_balance}', exp_date = '{new_date}' WHERE chat_id = '{chat_id}'"
+
+        # Otherwise, dont touch exp date
+        else:
+            query_string = f"UPDATE token_balance SET tokens = '{new_balance}' WHERE chat_id = '{chat_id}'"
+            new_date = curr_exp_date # Just for returning the expiry date, new_date is not used here
+        # Update db
+        await set_db(query_string)
+        return new_balance, new_date
+    # If no existing entry, create new entry
+    else: 
+        # Create new entry
+        query_string = f"INSERT INTO token_balance (chat_id, tokens, exp_date) VALUES ('{chat_id}', '{package_tokens}', '{new_date}')"
+        await set_db(query_string)
+        logger.info("Chat ID does not exist in token_balance table")
+        return package_tokens, new_date
+
+
+
+
+
 
 ###########################################################################################################################################################
 # Get Grp ChatID and send message to group
@@ -1173,10 +1197,6 @@ def global_error_handler(update, context):
     # Optionally, notify the developer or admin
     context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"An error occurred: {context.error}")
 
-
-
-
-
 # Bot classes
 
 # Main
@@ -1202,7 +1222,8 @@ async def main() -> None:
 
 
 
-    # Payment Convo Handler
+    #TODO remove since combined with purchase_tokens_handler
+    # Payment Convo Handler 
     payment_handler = ConversationHandler(
         entry_points=[CommandHandler('verifypayment', verifyPayment)],
         states={
@@ -1290,6 +1311,7 @@ async def main() -> None:
     entry_points=[CommandHandler('purchasetokens', purchasetokens)],
     states={
         SELECTING_PACKAGE: [CallbackQueryHandler(package_selection)],
+        PHOTO_REQUESTED: [MessageHandler(filters.PHOTO, verifyPayment)]
     },
     fallbacks=[CommandHandler('cancel', cancel)]
     )
