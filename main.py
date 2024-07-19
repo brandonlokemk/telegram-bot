@@ -19,6 +19,7 @@ import mysql.connector
 import asyncio
 import schedule
 import traceback
+import time
 import pymysql
 from datetime import datetime, timedelta
 from typing import Callable
@@ -1202,15 +1203,18 @@ def global_error_handler(update, context):
 
 ###########################################################################################################################################################   
 # Function to check and update expired credits
-async def check_and_update_expired_credits():
+async def check_and_update_expired_credits(bot):
     try:
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         query_string = f"SELECT chat_id, tokens FROM token_balance WHERE expiration_date <= '{now}'"
-        results = await get_db()
+        results = await get_db(query_string)
         for entries in results:
             chat_id, expiring_tokens = entries
+            #remove expired entry
+            query_string = f"DELETE from token_balance WHERE chat_id = '{chat_id}'"
+            await set_db(query_string)
             # notify users that their credits have expired
-            
+            bot.send_message(chat_id=chat_id, text=f"{expiring_tokens} tokens have expired today!")
     except Exception as e:
         pass
 
@@ -1401,6 +1405,13 @@ async def main() -> None:
             host="0.0.0.0",
         )
     )
+    # schedule.every().day.at("00:00").do(check_and_update_expired_credits(application.bot))
+    schedule.every().day.at("23:12").do(check_and_update_expired_credits, application.bot)
+
+
+    # Create the asyncio task for running the schedule
+    loop = asyncio.get_event_loop()
+    schedule_task = loop.run_in_executor(None, run_schedule)
 
     # Run application and webserver together
     async with application:
@@ -1408,6 +1419,8 @@ async def main() -> None:
         await webserver.serve()
         await application.stop()
 
+    await schedule_task
+    
 
 if __name__ == "__main__":
     asyncio.run(main())
