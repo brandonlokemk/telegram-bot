@@ -17,6 +17,7 @@ import os
 import mysql
 import mysql.connector
 import asyncio
+import schedule
 import traceback
 import pymysql
 from datetime import datetime, timedelta
@@ -1198,6 +1199,26 @@ def global_error_handler(update, context):
     context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"An error occurred: {context.error}")
 
 # Bot classes
+
+###########################################################################################################################################################   
+# Function to check and update expired credits
+async def check_and_update_expired_credits():
+    try:
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        query_string = f"SELECT chat_id, tokens FROM token_balance WHERE expiration_date <= '{now}'"
+        results = await get_db()
+        for entries in results:
+            chat_id, expiring_tokens = entries
+            # notify users that their credits have expired
+            
+    except Exception as e:
+        pass
+
+# Function to run scheduled tasks
+def run_schedule():
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
 
 # Main
 async def main() -> None:
