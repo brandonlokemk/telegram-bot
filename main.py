@@ -36,7 +36,7 @@ from http import HTTPStatus
 import uvicorn
 from asgiref.wsgi import WsgiToAsgi
 from flask import Flask, Response, abort, make_response, request
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, InputFile
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -191,6 +191,7 @@ class CustomContext(CallbackContext[ExtBot, dict, dict, dict]):
             return cls(application=application, user_id=update.user_id)
         return super().from_update(update, application)
 ###########################################################################################################################################################   
+
 # Bot Commands
 # Start command
 async def start(update: Update, context: CustomContext) -> None:
@@ -931,7 +932,224 @@ async def delete_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.info(f"Unexpected error: {str(e)}")
 
 ###########################################################################################################################################################   
+# Add token packages
+PACKAGE_NAME, NUMBER_OF_TOKENS, PRICE, DESCRIPTION = range(4)
 
+# Function to handle /addpackage command
+async def add_package(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text("Please enter the package name:")
+    return PACKAGE_NAME
+
+# Function to handle package name input
+async def package_name_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    package_name = update.message.text
+    context.user_data['package_name'] = package_name
+    await update.message.reply_text("Please enter the number of tokens for this package:")
+    return NUMBER_OF_TOKENS
+
+# Function to handle number of tokens input
+async def number_of_tokens_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        number_of_tokens = int(update.message.text)
+        context.user_data['number_of_tokens'] = number_of_tokens
+        await update.message.reply_text("Please enter the price of this package:")
+        return PRICE
+    except ValueError:
+        await update.message.reply_text("Invalid input. Please enter an integer for the number of tokens:")
+        return NUMBER_OF_TOKENS
+
+# Function to handle the price input
+async def purchase_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        purchase_amount = float(update.message.text)
+        context.user_data['price'] = purchase_amount
+        await update.message.reply_text("Please enter the description to be displayed for the package:")
+        return DESCRIPTION
+    except ValueError:
+        await update.message.reply_text("Invalid input. Please enter a decimal number for the purchase amount:")
+        return PRICE
+
+# Function to handle the description input and store the package in the database
+async def description_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    description = update.message.text
+    context.user_data['description'] = description
+    print("made it to updating db")
+    async with AsyncSessionLocal() as conn:
+        await conn.execute(
+            sqlalchemy.text(
+                "INSERT INTO token_packages (package_name, number_of_tokens, price, description) VALUES (:package_name, :number_of_tokens, :price, :description)"
+            ),
+            {
+                'package_name': context.user_data['package_name'],
+                'number_of_tokens': context.user_data['number_of_tokens'],
+                'price': context.user_data['price'],
+                'description': context.user_data['description']
+            }
+        )
+        await conn.commit()
+
+    print("finished updating db")
+    await update.message.reply_text("Token package added successfully!")
+
+    return ConversationHandler.END
+
+###########################################################################################################################################################   
+#Delete tokens
+
+SELECT_PACKAGE, CONFIRM_DELETE = range(2)
+
+# Function to handle /deletepackage command
+async def delete_package(update: Update, context: CallbackContext) -> int:
+    try:
+        async with AsyncSessionLocal() as conn:
+            results = await conn.execute(
+                sqlalchemy.text(
+                    "SELECT package_id, package_name, description FROM token_packages"
+                )
+            )
+            packages = results.fetchall()
+
+        if not packages:
+            await update.message.reply_text("No packages available to delete.")
+            return ConversationHandler.END
+
+        # Prepare the message with package descriptions
+        package_info = "\n\n".join([f"{pkg[1]}: {pkg[2]}" for pkg in packages])
+        keyboard = [[InlineKeyboardButton(pkg[1], callback_data=str(pkg[0]))] for pkg in packages]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(f"Select a package to delete:\n\n{package_info}", reply_markup=reply_markup)
+        return SELECT_PACKAGE
+    except Exception as e:
+        await update.message.reply_text(f"An error occurred: {e}")
+        return ConversationHandler.END
+
+# Function to handle package selection
+async def select_package(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    context.user_data['package_id'] = int(query.data)
+
+    await query.answer()
+    await query.edit_message_text("Are you sure you want to delete this package? Type 'yes' to confirm or 'no' to cancel.")
+    return CONFIRM_DELETE
+
+# Function to confirm and delete the package
+async def confirm_delete(update: Update, context: CallbackContext) -> int:
+    user_response = update.message.text.lower()
+    
+    if user_response == 'yes':
+        package_id = context.user_data['package_id']
+        try:
+            async with AsyncSessionLocal() as conn:
+                await conn.execute(
+                    sqlalchemy.text(
+                        "DELETE FROM token_packages WHERE package_id = :package_id"
+                    ).params(package_id=package_id)
+                )
+                await conn.commit()
+
+            await update.message.reply_text("Package deleted successfully!")
+        except Exception as e:
+            await update.message.reply_text(f"An error occurred: {e}")
+    else:
+        await update.message.reply_text("Package deletion canceled.")
+
+    return ConversationHandler.END
+
+# Function to handle the cancelation
+async def cancel(update: Update, context: CallbackContext) -> int:
+    await update.message.reply_text("Action canceled.")
+    return ConversationHandler.END
+
+
+###########################################################################################################################################################   
+# Purchase tokens
+
+SELECTING_PACKAGE, CONFIRMING_PAYMENT = range(2)
+
+async def purchasetokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_handle = update.effective_user.username
+
+    # Retrieve token packages from the database
+    async with AsyncSessionLocal() as conn:
+        results = await conn.execute(
+            sqlalchemy.text(
+                "SELECT package_id, package_name, number_of_tokens, price, description FROM token_packages"
+            )
+        )
+        token_packages = results.fetchall()
+
+    # Format packages as inline buttons
+    keyboard = []
+    package_info = "<u><b>Packages:</b></u>\n\n"
+    for package in token_packages:
+        package_id, package_name, tokens, price, description = package
+        package_info += f"<b>{package_name}</b>:\n{description}\n\n"
+        keyboard.append([InlineKeyboardButton(package_name, callback_data=f"select_package|{package_id}")])
+
+    # Check if there are no packages available
+    if not token_packages:
+        await update.message.reply_text('No token packages available.')
+        return ConversationHandler.END
+
+    # Add static package info
+    package_info += "<b><u>Token Usage</u></b>\n\n"
+    package_info += "<b>3 additional shortlist = </b> 5 tokens\n<b>1 post (+3 shortlist) =</b> 45 tokens \n<b>Repost posting (+3 shortlist) =</b> 30 tokens \n\nPlease select a package:"
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(package_info, reply_markup=reply_markup, parse_mode='HTML')
+
+    return SELECTING_PACKAGE
+
+async def package_selection(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    await query.answer()
+    package_id = query.data.split('|')[1]
+
+    # Store the selected package_id in the user context
+    context.user_data['selected_package_id'] = package_id
+
+    # Fetch package details from the database
+    async with AsyncSessionLocal() as conn:
+        results = await conn.execute(
+            sqlalchemy.text(
+                "SELECT package_name, number_of_tokens, price, description FROM token_packages WHERE package_id = :package_id"
+            ).params(package_id=package_id)
+        )
+        package = results.fetchone()
+
+    if package:
+        package_name, tokens, price, description = package
+        context.user_data['package_price'] = price
+        context.user_data['package_tokens'] = tokens
+        context.user_data['package_description'] = description
+
+        confirmation_message = f"You have picked the package: {description}\n\nYou are required to pay ${price} for {tokens} tokens.\n\nPlease make the payment and send a screenshot."
+        await query.edit_message_text(confirmation_message)
+
+        # Send a photo
+        photo_path = "paynow_qrcode.jpg"
+        await query.message.reply_photo(photo=open(photo_path, 'rb'))
+        
+    print("ending convo handler")
+    return ConversationHandler.END
+
+###########################################################################################################################################################
+# Get Grp ChatID and send message to group
+async def get_chat_id(update: Update, context: CallbackContext) -> None:
+    chat_id = update.effective_chat.id
+    await update.message.reply_text(f"The chat ID is: {chat_id}")
+
+# async def send_message_to_group(update: Update, context: CallbackContext) -> None:
+#     # Replace 'YOUR_CHAT_ID' with the actual chat ID of the group
+#     chat_id = 'YOUR_CHAT_ID'
+#     message = 'Hello, group! This is a message from the bot.'
+#     await bot.send_message(chat_id=chat_id, text=message)
+
+
+
+
+
+###########################################################################################################################################################
 async def webhook_update(update: WebhookUpdate, context: CustomContext) -> None: # Just to handle custom webhook updates, not a bot command
     """Handle custom updates."""
     chat_member = await context.bot.get_chat_member(chat_id=update.user_id, user_id=update.user_id)
@@ -979,6 +1197,10 @@ async def main() -> None:
     # application.add_handler(CommandHandler("register", register))
     application.add_handler(CommandHandler("deleteprofile", delete_profile))
 
+    application.add_handler(CommandHandler('get_chat_id', get_chat_id))
+    # application.add_handler(CommandHandler('send_message_to_group', send_message_to_group))
+
+
 
     # Payment Convo Handler
     payment_handler = ConversationHandler(
@@ -1007,7 +1229,7 @@ async def main() -> None:
         COMPANY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
         COMPANY_UEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)]
     },
-    fallbacks=[]
+    fallbacks=[CommandHandler('cancel', cancel)]
 )
     application.add_handler(registration_conversation_handler)
    
@@ -1019,7 +1241,7 @@ async def main() -> None:
             SELECT_ATTRIBUTE: [CallbackQueryHandler(select_attribute)],
             ENTER_NEW_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_new_value)],
         },
-        fallbacks=[]
+        fallbacks=[CommandHandler('cancel', cancel)]
     )
     application.add_handler(edit_profile_handler)
 
@@ -1030,13 +1252,48 @@ async def main() -> None:
         SELECT_AGENCY: [CallbackQueryHandler(jobpost_button)],
         ENTER_JOB_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, jobpost_text_handler)],
     },
-    fallbacks=[]
+    fallbacks=[CommandHandler('cancel', cancel)]
 )
     
     application.add_handler(job_post_handler)
     
 
+#Add token package convo handler
+    add_package_handler = ConversationHandler(
+    entry_points=[CommandHandler('addpackage', add_package)],
+    states={
+        PACKAGE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, package_name_input)],
+        NUMBER_OF_TOKENS: [MessageHandler(filters.TEXT & ~filters.COMMAND, number_of_tokens_input)],
+        PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, purchase_amount_input)],
+        DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, description_input)]
+    },
+    fallbacks=[CommandHandler('cancel', cancel)]
+)
 
+    application.add_handler(add_package_handler)
+
+
+# Delete token package convo handler
+    delete_package_handler = ConversationHandler(
+    entry_points=[CommandHandler('deletepackage', delete_package)],
+    states={
+        SELECT_PACKAGE: [CallbackQueryHandler(select_package)],
+        CONFIRM_DELETE: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_delete)],
+    },
+    fallbacks=[CommandHandler('cancel', cancel)]
+)
+    application.add_handler(delete_package_handler)
+
+
+# Purchasing tokens convo handler
+    purchase_tokens_handler = ConversationHandler(
+    entry_points=[CommandHandler('purchasetokens', purchasetokens)],
+    states={
+        SELECTING_PACKAGE: [CallbackQueryHandler(package_selection)],
+    },
+    fallbacks=[CommandHandler('cancel', cancel)]
+    )
+    application.add_handler(purchase_tokens_handler)
 
     # CallbackQueryHandlers
     application.add_handler(CallbackQueryHandler(delete_button, pattern='^delete\\|'))
