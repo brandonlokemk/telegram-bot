@@ -16,9 +16,12 @@ Press Ctrl-C on the command line or send a signal to the process to stop the bot
 import os
 import mysql
 import mysql.connector
+
 import asyncio
-from google.cloud.sql.connector import Connector, IPTypes
+import traceback
 import pymysql
+from typing import Callable
+from google.cloud.sql.connector import Connector, IPTypes
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.orm import sessionmaker
@@ -49,9 +52,10 @@ from telegram.ext import (
     )
 from dotenv import load_dotenv
 
+#TODO change/sanitize f-string SQL entries to protect from injection attacks
+
 # Load .env
 load_dotenv()
-
 # Enable logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -93,18 +97,60 @@ async_pool = create_async_engine(
 )
 
 AsyncSessionLocal = sessionmaker(bind=async_pool, class_=AsyncSession, expire_on_commit=False)
+async def get_db_fetchone(query_string: str):
+    """Retrieves entry from DB
+
+    Args:
+        query_string (str): Query for DB to execute
+        fetch_fn (Callable): fetchall() or fetchone(), etc
+
+    Returns:
+        Data from query
+    """    
+    try: 
+        logger.info(f"Executing fetch query: {query_string}")
+        async with AsyncSessionLocal() as conn:
+            results = await conn.execute(sqlalchemy.text(query_string))
+            data = results.fetchone()
+            logging.info(f"Results from query: {data}")
+            return data
+    except Exception as e:
+        logger.info(f"Error in interacting with database: {e}")
+
+async def get_db(query_string: str):
+    """Retrieves entry from DB
+
+    Args:
+        query_string (str): Query for DB to execute
+        fetch_fn (Callable): fetchall() or fetchone(), etc
+
+    Returns:
+        Data from query
+    """    
+    try: 
+        logger.info(f"Executing fetch query: {query_string}")
+        async with AsyncSessionLocal() as conn:
+            results = await conn.execute(sqlalchemy.text(query_string))
+            data = results.fetchall()
+            logging.info(f"Results from query: {data}")
+            return data
+    except Exception as e:
+        logger.info(f"Error in interacting with database: {e}")
+
+async def set_db(query_string: str):
+    try:
+        logger.info(f"Executing commit query: {query_string}")
+        async with AsyncSessionLocal() as conn:
+            await conn.execute(sqlalchemy.text(query_string))
+            await conn.commit()
+    except Exception as e:
+        logger.info(f"Error in interacting with database: {e}")
+    
 
 async def async_test_db():
-    async with AsyncSessionLocal() as conn:
-
-        user_handle = "Lizzie0111"
-        # Execute the query and fetch all results
-        results = await conn.execute(
-            sqlalchemy.text(
-                f"SELECT id, agency_name FROM agencies WHERE user_handle = '{user_handle}'"
-            )
-        )
-        agency_profiles = results.fetchall()
+    user_handle = "brandonlmk"
+    query_string = f"SELECT id, agency_name FROM agencies WHERE user_handle = '{user_handle}'"
+    agency_profiles = await get_db(query_string)
     logger.info(agency_profiles) #
     return agency_profiles
 
@@ -183,7 +229,7 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 # Handle button clicks
 async def register_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    print("clicked on register button")
+    logger.info("clicked on register button")
     query = update.callback_query
     await query.answer()
 
@@ -205,56 +251,56 @@ async def register_button(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 # Define the functions for each step
 async def ask_for_dob(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    print("Entered ask_for_dob")
+    logger.info("Entered ask_for_dob")
     context.user_data['name'] = update.message.text
     await update.message.reply_text('Please enter your date of birth (YYYY-MM-DD):')
     context.user_data['registration_step'] = 'dob'
     return DOB
 
 async def ask_for_past_experiences(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    print("Entered ask_for_past_experiences")
+    logger.info("Entered ask_for_past_experiences")
     context.user_data['dob'] = update.message.text
     await update.message.reply_text('Please enter your past experiences to improve chances of getting shortlisted:')
     context.user_data['registration_step'] = 'past_experiences'
     return PAST_EXPERIENCES
 
 async def ask_for_citizenship(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    print("Entered ask_for_citizenship")
+    logger.info("Entered ask_for_citizenship")
     context.user_data['past_experiences'] = update.message.text
     await update.message.reply_text('Please enter your citizenship status:')
     context.user_data['registration_step'] = 'citizenship'
     return CITIZENSHIP
 
 async def ask_for_race(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    print("Entered ask_for_race")
+    logger.info("Entered ask_for_race")
     context.user_data['citizenship'] = update.message.text
     await update.message.reply_text('Please enter your race:')
     context.user_data['registration_step'] = 'race'
     return RACE
 
 async def ask_for_gender(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    print("Entered ask_for_gender")
+    logger.info("Entered ask_for_gender")
     context.user_data['race'] = update.message.text
     await update.message.reply_text('Please enter your gender:')
     context.user_data['registration_step'] = 'gender'
     return GENDER
 
 async def ask_for_highest_education(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    print("Entered ask_for_highest_education")
+    logger.info("Entered ask_for_highest_education")
     context.user_data['gender'] = update.message.text
     await update.message.reply_text('Please enter your highest education:')
     context.user_data['registration_step'] = 'highest_education'
     return HIGHEST_EDUCATION
 
 async def ask_for_whatsapp_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    print("Entered ask_for_whatsapp_number")
+    logger.info("Entered ask_for_whatsapp_number")
     context.user_data['highest_education'] = update.message.text
     await update.message.reply_text('Please enter your WhatsApp number:')
     context.user_data['registration_step'] = 'whatsapp_number'
     return WHATSAPP_NUMBER
 
 async def save_applicant(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    print("Entered save_applicant")
+    logger.info("Entered save_applicant")
     context.user_data['whatsapp_number'] = update.message.text
     async with AsyncSessionLocal() as conn:
         await conn.execute(
@@ -267,21 +313,21 @@ async def save_applicant(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return ConversationHandler.END
 
 async def ask_for_company_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    print("Entered ask_for_company_name")
+    logger.info("Entered ask_for_company_name")
     context.user_data['full_name'] = update.message.text
     await update.message.reply_text('Please enter your company name:')
     context.user_data['registration_step'] = 'company_name'
     return COMPANY_NAME
 
 async def ask_for_company_uen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    print("Entered ask_for_company_uen")
+    logger.info("Entered ask_for_company_uen")
     context.user_data['company_name'] = update.message.text
     await update.message.reply_text('Please enter your company UEN:')
     context.user_data['registration_step'] = 'company_uen'
     return COMPANY_UEN
 
 async def save_agency(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    print("Entered save_agency")
+    logger.info("Entered save_agency")
     context.user_data['company_uen'] = update.message.text
     async with AsyncSessionLocal() as conn:
         await conn.execute(
@@ -295,15 +341,15 @@ async def save_agency(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 # Main text handler
 async def registration_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    print("entered registration_text_handler")
+    logger.info("entered registration_text_handler")
     if 'registration_step' in context.user_data:
         step = context.user_data['registration_step']
         
         if 'previous_steps' not in context.user_data:
-            print("entered the first if statement")
+            logger.info("entered the first if statement")
             context.user_data['previous_steps'] = []
         context.user_data['previous_steps'].append(step)
-        print("STEP:", step)
+        logger.info("STEP:", step)
         if step == 'name':
             return await ask_for_dob(update, context)
         elif step == 'dob':
@@ -327,7 +373,7 @@ async def registration_text_handler(update: Update, context: ContextTypes.DEFAUL
         elif step == 'company_uen':
             return await save_agency(update, context)
         
-    print("exited registration_text_handler")
+    logger.info("exited registration_text_handler")
     return ConversationHandler.END
     
 
@@ -413,7 +459,7 @@ async def select_profile(update: Update, context: CallbackContext) -> int:
         return SELECT_ATTRIBUTE
 
     except IndexError:
-        print(f"Error: Malformed callback_data - {query.data}")
+        logger.info(f"Error: Malformed callback_data - {query.data}")
 
     return ConversationHandler.END
 
@@ -434,7 +480,7 @@ async def select_attribute(update: Update, context: CallbackContext) -> int:
         return ENTER_NEW_VALUE
 
     except IndexError:
-        print(f"Error: Malformed callback_data - {query.data}")
+        logger.info(f"Error: Malformed callback_data - {query.data}")
 
     return ConversationHandler.END
 
@@ -467,7 +513,7 @@ async def enter_new_value(update: Update, context: CallbackContext) -> int:
         context.user_data.clear()  # Clear user data after successful update
 
     except Exception as e:
-        print(f"Unexpected error: {str(e)}")
+        logger.info(f"Unexpected error: {str(e)}")
         await update.message.reply_text('An error occurred while updating the profile.')
 
     return ConversationHandler.END
@@ -567,70 +613,220 @@ async def save_jobpost(user_data):
     )
         )
         await conn.commit()
+###########################################################################################################################################################   
+# Top Up Tokens Command
+
+
 
 ###########################################################################################################################################################   
-# Verify Payment Command
+# Package purchase process
+async def create_transaction_entry(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id = None, package_id = None):
+    """
+    Creates a new entry with [status = pending] in the database transactions table with the Chat ID and Package ID provided.
+    This is done after the agency has sent their payment screenshot.
+
+    Args:
+        chat_id (str): Chat ID of agency which purchased the package
+        package_id (str): ID of package purchases by agency
+
+    Return:
+        transaction_id (int): ID of newly created transaction
+    """    
+    # uuid, package_id = str(agency_id), str(package_id)
+    # agency_id, package_id = 'd845af72-439b-11ef-8a7f-42010a400002', '12'
+    chat_id = str(ADMIN_CHAT_ID)
+    package_id = '12'
+    # Create entry in transaction table of DB
+    logger.info(f"LOG: Creating a row in transaction DB table with Chat ID: {chat_id}, Package ID: {package_id}")
+    query_string = f"INSERT INTO transactions (chat_id, package_id) VALUES ('{chat_id}', '{package_id}')"
+    await set_db(query_string)
+    # Get transaction ID of the newly created entry
+    query_string = f"SELECT transaction_id FROM transactions WHERE chat_id = '{chat_id}' ORDER BY transaction_id DESC LIMIT 1"
+    results = await get_db_fetchone(query_string)
+    transaction_id = results[0]
+    logger.info(f"LOG: Transaction created - ID: {transaction_id}")
+    context.user_data['transaction_id'] = transaction_id
+    await update.message.reply_text("Transaction created!")
+    return transaction_id
+
 PHOTO_REQUESTED = 1
 async def verifyPayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Requests for screenshot of payment from Agency and calls the admin acknowledgement function
+
+    Args:
+        package_id: Package ID which agency wants to purchase
+    """    
+    chat_id = update.effective_chat.id
+    package_id = '12'
     logger.info("LOG: verifyPayment() called")
     if update.message.photo:
         logger.info("LOG: photo received")
         # Get the largest photo size
         photo = update.message.photo[-1].file_id
         context.user_data['photo'] = photo
+        transaction_id = await create_transaction_entry(update, context, chat_id=chat_id, package_id=package_id)
         await update.message.reply_text(
             "Thank you! Now, I will forward this screenshot to the admin."
         )
-        return await forward_photo_to_admin(update, context)
+        return await forward_to_admin_for_acknowledgement(update, context, message_type='image', message=photo, transaction_id=transaction_id)
     else:
         await update.message.reply_text(
             "Please upload a screenshot."
         )
         return PHOTO_REQUESTED
-    return ConversationHandler.END
 
-async def forward_photo_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("LOG: forward_photo_to_admin() called")
-    if 'photo' in context.user_data:
-        # Forward photo to admin
-        photo = context.user_data['photo']
-        logger.info(f"CHAT ID: {update.message.chat.id}, TYPE: {type(update.message.chat.id)}")
-        # Create an inline keyboard button for acknowledgment with user chat ID in the callback data
-        keyboard = [[InlineKeyboardButton("Acknowledge", callback_data=str(update.message.chat.id))]]
+async def forward_to_admin_for_acknowledgement(update: Update, context: ContextTypes.DEFAULT_TYPE, message_type: str, message, transaction_id):
+    """
+    Send a copy of the message/screenshot to an admin for acknowledgement.
+    Users can continue interacting with the bot while waiting for response
+
+    Args:
+        update (Update): _description_
+        context (ContextTypes.DEFAULT_TYPE): _description_
+        message_type (str): 'text' or 'image'
+        id: Transaction ID if payment (image) or Job Posts ID if post (text)
+    """    
+    logger.info(f"get_admin_acknowledgement() called, forwarding a {message_type} to USER {ADMIN_CHAT_ID}")
+    if message_type == 'image':
+        photo = message
+        query_string = f"SELECT chat_id, package_id FROM transactions WHERE transaction_id = '{transaction_id}'"
+        results = await get_db(query_string)
+        logger.info(f"Results: {results}")
+        chat_id, package_id = results[0] # unpack tuple
+        # Set callback data from ID provided
+        ss_accept_callback_data = f"ss_accept_{transaction_id}" # Callbackdata has fixed format: ss_<transaction_ID> (screenshot) or jp_<transaction_ID> (job post)
+        ss_reject_callback_data = f"ss_reject_{transaction_id}"
+        logger.info(f"Callback data: {ss_accept_callback_data}, {ss_reject_callback_data}")
+        keyboard = [
+            [InlineKeyboardButton("Approve", callback_data=ss_accept_callback_data)],
+            [InlineKeyboardButton("Reject", callback_data=ss_reject_callback_data)]
+        ] # Can check transaction ID if need details
         reply_markup = InlineKeyboardMarkup(keyboard)
         await context.bot.send_photo(
             chat_id=ADMIN_CHAT_ID,
             photo=photo,
-            caption="Dear admin, please acknowledge this photo", #TODO add details regarding transaction
+            caption=f"Dear Admin, purchase made by {chat_id} for Package {package_id}", #TODO add details regarding transaction
             reply_markup=reply_markup
         )
-
+        # pass
         await update.message.reply_text(
-            "Photo forwarded to admin."
-        )
+        "Photo forwarded to admin."
+    )
     else:
         await update.message.reply_text(
             "No screenshot submission found."
         )
     # End the conversation
     return ConversationHandler.END
-    
-async def admin_acknowledge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.info(f"Update: {update}")
-    logger.info(f"Context USER DATA: {context.user_data}")
 
+
+async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    CallbackHandler for the acknowledgement button when messages or screenshots are forwarded to the admin.
+    This gets called when the function is pressed
+    Callbackdata has fixed format: ss_accept_<ID> / ss_reject_<ID> (screenshot) or jp_accept_<ID> / jp_reject_<ID? (job post)
+    Args:   
+        update (Update): _description_
+        context (ContextTypes.DEFAULT_TYPE): _description_
+    """  
+    # Get callback query data (e.g. ss_accept_<ID>)
+    logger.info("Approve/Reject button pressed")
     query = update.callback_query
-    logger.info(f'Query data: {query.data}')
-    await query.answer()  # Acknowledge the callback query to remove the loading state
-    # # Extract the user chat ID from the callback data
-    # callback_data = json.loads(query.data)
-    # user_chat_id = callback_data['user_chat_id']
+    logger.info(f'Callback query data: {query.data}')
+    query_data = query.data
+    # Check which query data it is (which button admin pressed)
+    if query_data.startswith('ss_'): 
+        logger.info("SS query found")
+        # Getting admin response as well as transaction ID
+        status, transaction_id = query_data.split('_')[1:]
+        # Select chat_id based on transaction_id
+        query_string = f"SELECT chat_id FROM transactions WHERE transaction_id = '{transaction_id}'"
+        results = await get_db(query_string)
+        logger.info(f"Results: {results}")
+        chat_id = results[0][0]
+        # # Get chat id from agency id
+        # query_string = f"SELECT chat_id FROM agencies WHERE id = '{agency_id}'"
+        # results = await get_db(query_string)
+        # chat_id = results[0][0]
+
+        if status == 'accept':
+            # Update transaction entry status to 'Approved'
+            query_string = f"UPDATE transactions SET status = 'Approved' WHERE transaction_id = '{transaction_id}'"
+            await set_db(query_string)
+            logger.info(f"Approved {transaction_id} in database!")
+            await query.answer()  # Acknowledge the callback query to remove the loading state
+
+            
+            # Edit the caption of the photo message
+            await query.edit_message_caption(caption="You have acknowledged the screenshot.\nCredits have been transferred.")
+            
+            # Notify the user
+            await context.bot.send_message(chat_id=chat_id, text="Your payment has been acknowledged by an admin!.")
+        
+        elif status == 'reject':
+            # Update transaction entry status to 'Rejected'
+            query_string = f"UPDATE transactions SET status = 'rejected' WHERE transaction_id = '{transaction_id}'"
+            await set_db(query_string)
+            logger.info(f"Rejected {transaction_id} in database!")
+            await query.answer()  # Acknowledge the callback query to remove the loading state
+
+            
+            # Edit the caption of the photo message
+            await query.edit_message_caption(caption="You have rejected the screenshot.\nUser will be notified")
+            
+            # Notify the user
+            await context.bot.send_message(chat_id=chat_id, text="Your payment has been rejected by an admin. Please PM admin for more details")
+
+
+
+
+
+
+# async def forward_photo_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+#     logger.info("LOG: forward_photo_to_admin() called")
+#     if 'photo' in context.user_data:
+#         # Forward photo to admin
+#         photo = context.user_data['photo']
+#         logger.info(f"CHAT ID: {update.message.chat.id}, TYPE: {type(update.message.chat.id)}")
+#         # Create an inline keyboard button for acknowledgment with user chat ID in the callback data
+#         keyboard = [[InlineKeyboardButton("Acknowledge", callback_data=str(update.message.chat.id))]]
+#         reply_markup = InlineKeyboardMarkup(keyboard)
+#         await context.bot.send_photo(
+#             chat_id=ADMIN_CHAT_ID,
+#             photo=photo,
+#             caption="Dear admin, please acknowledge this photo", #TODO add details regarding transaction
+#             reply_markup=reply_markup
+#         )
+
+#         await update.message.reply_text(
+#             "Photo forwarded to admin."
+#         )
+#     else:
+#         await update.message.reply_text(
+#             "No screenshot submission found."
+#         )
+#     # End the conversation
+#     return ConversationHandler.END
     
-    # Edit the caption of the photo message
-    await query.edit_message_caption(caption="You have acknowledged the photo.")
+
+# async def admin_acknowledge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#     logger.info(f"Update: {update}")
+#     logger.info(f"Context USER DATA: {context.user_data}")
+
+#     query = update.callback_query
+#     logger.info(f'Query data: {query.data}')
+#     await query.answer()  # Acknowledge the callback query to remove the loading state
+
+#     # Get transaction details
+#     # agency_id = myTransaction.agency_id
+
     
-    # Notify the user
-    await context.bot.send_message(chat_id=query.data, text="Your payment has been acknowledged by an admin!.")
+#     # Edit the caption of the photo message
+#     await query.edit_message_caption(caption="You have acknowledged the photo.")
+    
+#     # Notify the user
+#     await context.bot.send_message(chat_id=query.data, text="Your payment has been acknowledged by an admin!.")
 
 ###########################################################################################################################################################   
 
@@ -648,7 +844,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 # Delete profile
 async def delete_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_handle = update.effective_user.username
-    print(user_handle)
+    logger.info(user_handle)
 
     # Retrieve agency and applicant profiles for the user_handle
     async with AsyncSessionLocal() as conn:
@@ -659,11 +855,11 @@ async def delete_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                )
         )
         agency_profiles = results.fetchall()
-        print(agency_profiles)
+        logger.info(agency_profiles)
 
         results = await conn.execute(
             sqlalchemy.text(
-                f"SELECT id,agency_name FROM agencies WHERE user_handle = '{user_handle}'"
+                f"SELECT id,name FROM applicants WHERE user_handle = '{user_handle}'"
                 )
         )
         applicant_profiles = results.fetchall()
@@ -672,14 +868,14 @@ async def delete_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     keyboard = []
         
     for id, agency_name in agency_profiles:
-        print(id)
-        print(agency_name)
+        logger.info(id)
+        logger.info(agency_name)
         keyboard.append([InlineKeyboardButton(f"Agency - {agency_name}", callback_data=f"delete|agency|{id}")])
     
     
     for id, applicant_name in applicant_profiles:
-        print(id)
-        print(applicant_name)
+        logger.info(id)
+        logger.info(applicant_name)
         keyboard.append([InlineKeyboardButton(f"Applicant - {applicant_name}", callback_data=f"delete|applicant|{id}")])
 
     # Check if both profiles are empty
@@ -690,11 +886,11 @@ async def delete_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text('Select the profile you want to delete:', reply_markup=reply_markup)
-    print("exited retrieve function")
+    logger.info("exited retrieve function")
 
 # Function to handle button clicks for profile deletion
 async def delete_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    print("entered delete_button_click")
+    logger.info("entered delete_button_click")
     query = update.callback_query
     await query.answer()
     try:
@@ -703,8 +899,8 @@ async def delete_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         action = parts[1]  # First part is the action
         profile_name = parts[2]  # Remaining parts are profile_name
         
-        print("profile name but maybe just id: ")    
-        print(profile_name)
+        logger.info("profile name but maybe just id: ")    
+        logger.info(profile_name)
             
         if action == 'agency':
             async with AsyncSessionLocal() as conn:
@@ -728,11 +924,11 @@ async def delete_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     except IndexError:
         # Log the error or handle it as appropriate
-        print(f"Error: Malformed callback_data - {query.data}")
+        logger.info(f"Error: Malformed callback_data - {query.data}")
 
     except Exception as e:
         # Log any other unexpected exceptions
-        print(f"Unexpected error: {str(e)}")
+        logger.info(f"Unexpected error: {str(e)}")
 
 ###########################################################################################################################################################   
 
@@ -748,6 +944,20 @@ async def webhook_update(update: WebhookUpdate, context: CustomContext) -> None:
     )
     await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=text, parse_mode=ParseMode.HTML)
 ###########################################################################################################################################################   
+# Error Handler
+def global_error_handler(update, context):
+    """Handles and logs any unexpected errors."""
+
+    # Log the error
+    logger.info(f"Update {update} caused error {context.error}")
+    traceback.print_exc()
+
+    # Optionally, notify the developer or admin
+    context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"An error occurred: {context.error}")
+
+
+
+
 
 # Bot classes
 
@@ -763,6 +973,7 @@ async def main() -> None:
     )
 
     # Command handlers
+    application.add_handler(CommandHandler('create_trans', create_transaction_entry))
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help))
     # application.add_handler(CommandHandler("register", register))
@@ -830,7 +1041,7 @@ async def main() -> None:
     # CallbackQueryHandlers
     application.add_handler(CallbackQueryHandler(delete_button, pattern='^delete\\|'))
     application.add_handler(CallbackQueryHandler(register_button, pattern='^(applicant|agency)$'))
-    application.add_handler(CallbackQueryHandler(admin_acknowledge)) #TODO change to trasnaction ID pattern
+    application.add_handler(CallbackQueryHandler(get_admin_acknowledgement, pattern='^(ss_|jp_)(accept|reject)_\d+$')) #TODO change to trasnaction ID pattern
 
     # Message Handler
     ## NIL ##
@@ -838,6 +1049,8 @@ async def main() -> None:
     # Misc
     application.add_handler(TypeHandler(type=WebhookUpdate, callback=webhook_update))
     
+    # Error Handlers
+    application.add_error_handler(global_error_handler)
 
     # Pass webhook settings to telegram
     await application.bot.set_webhook(url=f"{URL}/telegram", allowed_updates=Update.ALL_TYPES)
@@ -848,7 +1061,7 @@ async def main() -> None:
     # Flask app routes
     @flask_app.post("/telegram")  # type: ignore[misc]
     async def telegram() -> Response:
-        logging.info(f"MESSAGE RECEIVED: {request.json}")
+        logger.info(f"MESSAGE RECEIVED: {request.json}")
         """Handle incoming Telegram updates by putting them into the `update_queue`"""
         await application.update_queue.put(Update.de_json(data=request.json, bot=application.bot))
         return Response(status=HTTPStatus.OK)

@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY .env .env
 
 # Make port 8443 available to the world outside this container
-ENV HOST 0.0.0.0
+ENV HOST=0.0.0.0
 
 EXPOSE 8080
 
