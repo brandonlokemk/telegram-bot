@@ -54,7 +54,9 @@ from telegram.ext import (
     )
 from dotenv import load_dotenv
 
-#TODO change/sanitize f-string SQL entries to protect from injection attacks
+#TODO change/sanitize f-string SQL entries to protect from injection attacks - CHANGE TO SAFE FORMAT SO THAT IT WORKS!!!
+#TODO lock all commands in private chats (should not be able to work in group chats)
+#TODO add try and except blocks for conversation handlers
 
 # Load .env
 load_dotenv()
@@ -72,6 +74,7 @@ logger = logging.getLogger(__name__)
 # Define configuration constants
 URL = os.environ['CLOUD_URL']
 ADMIN_CHAT_ID = 566682368 #TODO change
+CHANNEL_ID = -1002192841091 #TODO change
 PORT = 8080
 BOT_TOKEN = os.environ['BOT_TOKEN'] # nosec B105
 
@@ -339,7 +342,7 @@ async def save_agency(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     async with AsyncSessionLocal() as conn:
         await conn.execute(
             sqlalchemy.text(
-        f"INSERT INTO agencies (user_handle, chat_id, name, agency_name, agency_uen) VALUES ('{context.user_data['user_handle']}', '{context.user_data['chat_id']}', '{context.user_data['full_name']}', '{context.user_data['company_name']}', '{context.user_data['company_uen']}')"
+        f'''INSERT INTO agencies (user_handle, chat_id, name, agency_name, agency_uen) VALUES ("{context.user_data['user_handle']}", "{context.user_data['chat_id']}", "{context.user_data['full_name']}", "{context.user_data['company_name']}", "{context.user_data['company_uen']}")'''
     )
         )
         await conn.commit()
@@ -601,25 +604,81 @@ async def jobpost_text_handler(update: Update, context: CallbackContext) -> int:
 
         elif step == 'job_scope':
             context.user_data['jobpost_job_scope'] = text
-            await save_jobpost(context.user_data)
-            await update.message.reply_text('Please note the following:\n\n'
-                                            '1. No MLM jobs\n'
-                                            '2. No SingPass required jobs\n'
-                                            '3. If scam jobs are found, the job post will be deleted, and credits will be revoked without a refund.\n\n'
-                                            'Your job posting has been forwarded to the admin. You will be informed when it has been approved.')
-
-            return ConversationHandler.END
+            job_id = await save_jobpost(context.user_data)
+            
+            message = await draft_job_post_message(job_id)
+            # Send to admin for approval
+            return await forward_to_admin_for_acknowledgement(update, context, message=message, job_post_id=job_id)
+            # Post job listing in channel
+            await post_job_in_channel(update, context, job_post_id=job_id)
 
     return ENTER_JOB_DETAILS
 
-async def save_jobpost(user_data):
+async def draft_job_post_message(job_id) -> str:
+    """    
+    Generates job post id to be approved by admin and posted in channel later on.
+    Args:
+        job_id (_type_): Job Post ID, returned by save_jobpost
+
+    Returns:
+        str: Message to be approved by admin
+    """    
+    # Fetch job details from db
+    query_string = f"SELECT agency_id, job_title, company_industry, date_time, pay_rate, job_scope FROM job_posts WHERE id = '{job_id}'"
+    results = await get_db(query_string)
+    agency_id, job_title, company_industry, date_time, pay_rate, job_scope = results[0]
+    # Fetch agency details from agency_id
+    query_string = f"SELECT user_handle, chat_id, name, agency_name, agency_uen FROM agencies WHERE id = '{agency_id}'"
+    results = await get_db(query_string)
+    user_handle, chat_id, name, agency_name, agency_uen = results[0]
+    # Draft message template
+    message = f'''
+    <b><u>Example Job Post [ID: {job_id}</u></b> (Template to be changed)\n\n
+<b>👨🏻‍💻 Agency</b>:\n{agency_name}\n\n
+<b>🏢Industry</b>:\n{company_industry}\n\n
+<b>👨‍💼Job Title</b>:\n{job_title}\n\n
+<b>🤑Salary</b>:\n{pay_rate}\n\n
+<b>😓Job Scope</b>:\n{job_scope}\n\n
+    '''
+    return message
+
+
+async def post_job_in_channel(update: Update, context: ContextTypes.DEFAULT_TYPE, message, job_post_id): #TODO fix template for job posts, what info should be shown to everyone (company name, etc.)
+    """
+    Broadcasts the job in the channel.
+    Message will contain a button for applicants to press which opens up a private chat from the bot to choose applicant profile.
+    Args:
+        update (Update): _description_
+        context (ContextTypes.DEFAULT_TYPE): _description_
+        job_id (_type_): ID of job being broadcasted
+    """    
+    keyboard = []
+    apply_button = [InlineKeyboardButton("Apply", callback_data=f"apply_{job_post_id}")]
+    keyboard.append(apply_button)
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await context.bot.send_message(chat_id=CHANNEL_ID, text=message, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+
+async def save_jobpost(user_data): #TODO add status
+    '''
+    Saves job in DB and returns ID of new entry
+    '''
+    logger.info(f"QUERY: INSERT INTO job_posts (agency_id, job_title, company_industry, date_time, pay_rate, job_scope, shortlist) VALUES ('{user_data['agency_id']}', '{user_data['jobpost_job_title']}', '{user_data['jobpost_company_industry']}', '{user_data['jobpost_date_time']}', '{user_data['jobpost_pay_rate']}', '{user_data['jobpost_job_scope']}', '0')"
+)
     async with AsyncSessionLocal() as conn:
-        await conn.execute(
+        result = await conn.execute(
             sqlalchemy.text(
-        f"INSERT INTO job_posts (agency_id, job_title, company_industry, date_time, pay_rate, job_scope, shortlist) VALUES ('{user_data['agency_id']}', '{user_data['jobpost_job_title']}', '{user_data['jobpost_company_industry']}', '{user_data['jobpost_date_time']}', '{user_data['jobpost_pay_rate']}', '{user_data['jobpost_job_scope']}', 0)"
+        f"INSERT INTO job_posts (agency_id, job_title, company_industry, date_time, pay_rate, job_scope, shortlist) VALUES ('{user_data['agency_id']}', '{user_data['jobpost_job_title']}', '{user_data['jobpost_company_industry']}', '{user_data['jobpost_date_time']}', '{user_data['jobpost_pay_rate']}', '{user_data['jobpost_job_scope']}', '0')"
     )
         )
         await conn.commit()
+        result = await conn.execute(sqlalchemy.text("SELECT LAST_INSERT_ID()"))
+        job_id = result.scalar_one()
+        return job_id
+
+async def apply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    logger.info(f"Apply button clicked by {chat_id}")
+    context.bot.send_text(chat_id=chat_id, text='ApplyText')
 
 ###########################################################################################################################################################   
 # Cancel
@@ -993,14 +1052,14 @@ async def verifyPayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "Thank you! Now, I will forward this screenshot to the admin."
         )
-        return await forward_to_admin_for_acknowledgement(update, context, message_type='image', message=photo, transaction_id=transaction_id)
+        return await forward_to_admin_for_acknowledgement(update, context, photo=photo, transaction_id=transaction_id)
     else:
         await update.message.reply_text(
             "Please upload a screenshot."
         )
         return PHOTO_REQUESTED
 
-async def forward_to_admin_for_acknowledgement(update: Update, context: ContextTypes.DEFAULT_TYPE, message_type: str, message, transaction_id):
+async def forward_to_admin_for_acknowledgement(update: Update, context: ContextTypes.DEFAULT_TYPE, photo=None, transaction_id=None, message=None, job_post_id=None):
     """
     Send a copy of the message/screenshot to an admin for acknowledgement.
     Users can continue interacting with the bot while waiting for response
@@ -1008,12 +1067,16 @@ async def forward_to_admin_for_acknowledgement(update: Update, context: ContextT
     Args:
         update (Update): _description_
         context (ContextTypes.DEFAULT_TYPE): _description_
-        message_type (str): 'text' or 'image'
+        photo: Screenshot to forwrd
+        message: Job Post message to forward
+        transaction_id: Transaction ID of payment
+        job_post_id: 
         id: Transaction ID if payment (image) or Job Posts ID if post (text)
     """    
-    logger.info(f"get_admin_acknowledgement() called, forwarding a {message_type} to USER {ADMIN_CHAT_ID}")
-    if message_type == 'image':
-        photo = message
+    logger.info(f"forward_to_admin_for_acknowledgement() called, forwarding to ADMIN USER {ADMIN_CHAT_ID}")
+    # Handling token purchase screenshots
+    if photo:
+        logger.info("Forwarding screenshot to admin for approval")
         query_string = f"SELECT chat_id, package_id FROM transactions WHERE transaction_id = '{transaction_id}'"
         results = await get_db(query_string)
         logger.info(f"Results: {results}")
@@ -1033,16 +1096,39 @@ async def forward_to_admin_for_acknowledgement(update: Update, context: ContextT
             caption=f"Dear Admin, purchase made by {chat_id} for Package {package_id}", #TODO add details regarding transaction
             reply_markup=reply_markup
         )
-        # pass
         await update.message.reply_text(
         "Photo forwarded to admin."
     )
-    else:
-        await update.message.reply_text(
-            "No screenshot submission found."
+
+    # Handling job posts
+    elif message:
+        logger.info("Forwarding job post message to admin for approval")
+        # Set callback data from ID provided
+        jp_accept_callback_data = f"jp_accept_{job_post_id}" # Callbackdata has fixed format: ss_<transaction_ID> (screenshot) or jp_<transaction_ID> (job post)
+        jp_reject_callback_data = f"jp_reject_{job_post_id}"
+        keyboard = [
+            [InlineKeyboardButton("Approve", callback_data=jp_accept_callback_data)],
+            [InlineKeyboardButton("Reject", callback_data=jp_reject_callback_data)]
+        ] # Can check transaction ID if need details
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await context.bot.send_message(
+            chat_id=ADMIN_CHAT_ID,
+            text=message,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML
         )
+        await update.message.reply_text(
+            'Please note the following:\n\n'
+            '1. No MLM jobs\n'
+            '2. No SingPass required jobs\n'
+            '3. If scam jobs are found, the job post will be deleted, and credits will be revoked without a refund.\n\n'
+            'Your job posting has been forwarded to the admin. You will be informed when it has been approved.')
+
     # End the conversation
     return ConversationHandler.END
+    
+
+
 
 
 async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1092,7 +1178,7 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
 
             
             # Edit the caption of the photo message
-            await query.edit_message_caption(caption="You have acknowledged the screenshot.\nCredits have been transferred.")
+            await query.edit_message_caption(caption="You have acknowledged the screenshot.\n\nCredits have been transferred.")
             
             # Notify the user
             await context.bot.send_message(chat_id=chat_id, text=f"Your payment has been acknowledged by an admin!.\n\nYour new token balance is: {new_balance}\nExpiring on: {exp_date}")
@@ -1106,10 +1192,58 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
 
             
             # Edit the caption of the photo message
-            await query.edit_message_caption(caption="You have rejected the screenshot.\nUser will be notified")
+            await query.edit_message_caption(caption="You have rejected the screenshot.\n\nUser will be notified")
             
             # Notify the user
             await context.bot.send_message(chat_id=chat_id, text="Your payment has been rejected by an admin. Please PM admin for more details")
+
+    elif query_data.startswith('jp_'): 
+        logger.info("JP query found")
+        # Getting admin response as well as job ID
+        status, job_post_id = query_data.split('_')[1:]
+        # Get agency id based on job id
+        query_string = f"SELECT agency_id FROM job_posts WHERE id = '{job_post_id}'"
+        results = await get_db(query_string)
+        agency_id = results[0][0]
+        # Get chat id from agency id 
+        query_string = f"SELECT chat_id FROM agencies WHERE id = '{agency_id}'"
+        results = await get_db(query_string)
+        chat_id = results[0][0]
+
+
+        if status == 'accept':
+            # Update job post status to 'Approved'
+            query_string = f"UPDATE job_posts SET status = 'Approved' WHERE id = '{job_post_id}'"
+            await set_db(query_string)
+            logger.info(f"Approved {job_post_id} in database!")
+            # Post to channel
+            message = await draft_job_post_message(job_post_id)
+            await post_job_in_channel(update, context, message=message, job_post_id=job_post_id)
+            # Alert user of approval
+            await query.answer()  # Acknowledge the callback query to remove the loading state
+            
+            # Edit the caption of the photo message
+            await query.edit_message_text(text="You have approved this Job Posting.\n\nAgency will be notifed.")
+            
+            # Notify the user
+            await context.bot.send_message(chat_id=chat_id, text=f"Your posting has been approved by the admin!.\n\nIt has been posted in the channel with Job ID: {job_post_id}")
+        
+        elif status == 'reject':
+            # Update job post status to 'Rejected'
+            query_string = f"UPDATE job_posts SET status = 'Rejected' WHERE id = '{job_post_id}'"
+            await set_db(query_string)
+            logger.info(f"Rejected {job_post_id} in database!")
+            await query.answer()  # Acknowledge the callback query to remove the loading state
+            
+            # Edit the caption of the photo message
+            await query.edit_message_text(text="You have rejected the Job Posting.\n\nAgency will be notified")
+            
+            # Notify the user
+            await context.bot.send_message(chat_id=chat_id, text="Your posting has been rejected by an admin. Please PM admin for more details")
+
+
+
+
 
 
 async def update_balance(chat_id, package_id):
@@ -1191,7 +1325,7 @@ async def webhook_update(update: WebhookUpdate, context: CustomContext) -> None:
     await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=text, parse_mode=ParseMode.HTML)
 ###########################################################################################################################################################   
 # Error Handler
-def global_error_handler(update, context):
+async def global_error_handler(update, context):
     """Handles and logs any unexpected errors."""
 
     # Log the error
@@ -1199,7 +1333,7 @@ def global_error_handler(update, context):
     traceback.print_exc()
 
     # Optionally, notify the developer or admin
-    context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"An error occurred: {context.error}")
+    await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"An error occurred: {context.error}")
 
 # Bot classes
 
