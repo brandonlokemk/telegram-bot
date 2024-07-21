@@ -17,7 +17,9 @@ import os
 import mysql
 import mysql.connector
 import asyncio
+import schedule
 import traceback
+import time
 import pymysql
 from datetime import datetime, timedelta
 from typing import Callable
@@ -145,8 +147,10 @@ async def set_db(query_string: str):
         async with AsyncSessionLocal() as conn:
             await conn.execute(sqlalchemy.text(query_string))
             await conn.commit()
+            return True
     except Exception as e:
         logger.info(f"Error in interacting with database: {e}")
+        return False
     
 
 async def async_test_db(): #TODO remove
@@ -1199,6 +1203,38 @@ def global_error_handler(update, context):
 
 # Bot classes
 
+###########################################################################################################################################################   
+# Function to check and update expired credits
+async def remove_expired_credits(bot):
+    try:
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        query_string = f"SELECT chat_id, tokens FROM token_balance WHERE exp_date <= '{now}'"
+        results = await get_db(query_string)
+        logger.info(f"Checking expiring tokens at {now}")
+        for entries in results:
+            chat_id, expiring_tokens = entries
+            #remove expired entry
+            query_string = f"DELETE from token_balance WHERE chat_id = '{chat_id}'"
+            await set_db(query_string)
+            logger.info(f"Removed {expiring_tokens} expired tokens from {chat_id} account")
+            # notify users that their credits have expired
+            await bot.send_message(chat_id=chat_id, text=f"{expiring_tokens} tokens have expired today!\n\nTo purchase more tokens, please use the /purchasetokens command!")
+    except Exception as e:
+        logger.info(e)
+
+# async def test_schedule(bot):
+#     logger.info(f"test_schedule called at {datetime.now()}")
+#     query_string = "DELETE FROM agencies WHERE id = '8beb109a-45b2-11ef-9d12-42010a400005'"
+#     if await set_db(query_string):
+#         logger.info("DELETED!")
+#     await bot.send_message(chat_id=ADMIN_CHAT_ID, text="Your agency account has been deleted!")
+
+# Function to run scheduled tasks
+async def run_schedule():
+    while True:
+        schedule.run_pending()
+        await asyncio.sleep(1)
+
 # Main
 async def main() -> None:
     """Set up PTB application and a web application for handling the incoming requests."""
@@ -1380,13 +1416,20 @@ async def main() -> None:
             host="0.0.0.0",
         )
     )
+    loop = asyncio.get_event_loop()
+    schedule.every().day.at("00:00").do(lambda: asyncio.run_coroutine_threadsafe(remove_expired_credits(application.bot), loop))
 
+    # Create the asyncio task for running the schedule
+    schedule_task = loop.create_task(run_schedule())
+    
     # Run application and webserver together
     async with application:
         await application.start()
         await webserver.serve()
         await application.stop()
 
+    await schedule_task
+    
 
 if __name__ == "__main__":
     asyncio.run(main())
