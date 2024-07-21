@@ -1208,15 +1208,17 @@ def global_error_handler(update, context):
 async def remove_expired_credits(bot):
     try:
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        query_string = f"SELECT chat_id, tokens FROM token_balance WHERE expiration_date <= '{now}'"
+        query_string = f"SELECT chat_id, tokens FROM token_balance WHERE exp_date <= '{now}'"
         results = await get_db(query_string)
+        logger.info(f"Checking expiring tokens at {now}")
         for entries in results:
             chat_id, expiring_tokens = entries
             #remove expired entry
             query_string = f"DELETE from token_balance WHERE chat_id = '{chat_id}'"
             await set_db(query_string)
+            logger.info(f"Removed {expiring_tokens} expired tokens from {chat_id} account")
             # notify users that their credits have expired
-            bot.send_message(chat_id=chat_id, text=f"{expiring_tokens} tokens have expired today!")
+            await bot.send_message(chat_id=chat_id, text=f"{expiring_tokens} tokens have expired today!\n\nTo purchase more tokens, please use the /purchasetokens command!")
     except Exception as e:
         logger.info(e)
 
@@ -1415,11 +1417,11 @@ async def main() -> None:
         )
     )
     loop = asyncio.get_event_loop()
-    schedule.every().day.at("00:00").do(lambda: asyncio.run_coroutine_threadsafe(remove_expired_credits(application.bot), loop)) #TODO test this out
+    schedule.every().day.at("00:00").do(lambda: asyncio.run_coroutine_threadsafe(remove_expired_credits(application.bot), loop))
 
     # Create the asyncio task for running the schedule
     schedule_task = loop.create_task(run_schedule())
-
+    
     # Run application and webserver together
     async with application:
         await application.start()
