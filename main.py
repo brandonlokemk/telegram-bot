@@ -57,7 +57,7 @@ from dotenv import load_dotenv
 #TODO change/sanitize f-string SQL entries to protect from injection attacks - CHANGE TO SAFE FORMAT SO THAT IT WORKS!!!
 #TODO lock all commands in private chats (should not be able to work in group chats)
 #TODO add try and except blocks for conversation handlers
-
+#TODO change all
 # Load .env
 load_dotenv()
 # Enable logging
@@ -144,6 +144,60 @@ async def get_db(query_string: str):
     except Exception as e:
         logger.info(f"Error in interacting with database: {e}")
 
+
+#SANITIZED VERSION
+async def safe_get_db(query_string: str, params: dict = None):
+    """
+    Retrieves entry from DB
+    Example usage:
+    query = "SELECT * FROM users WHERE id = :user_id"
+    params = {"user_id": 1}
+    await get_db(query, params)
+
+    Args:
+        query_string (str): Query for DB to execute
+        params (dict): Parameters for the query
+
+    Returns:
+        Data from query
+    """    
+    try: 
+        logger.info(f"Executing fetch query: {query_string} with params: {params}")
+        async with AsyncSessionLocal() as conn:
+            results = await conn.execute(sqlalchemy.text(query_string), params)
+            data = results.fetchall()
+            logger.info(f"Results from query: {data}")
+            return data
+    except Exception as e:
+        logger.info(f"Error in interacting with database: {e}")
+
+logger = logging.getLogger(__name__)
+
+async def safe_set_db(query_string: str, params: dict = None):
+    """
+    Executes a database commit operation
+    Example usage:
+    query = "UPDATE users SET name = :name WHERE id = :user_id"
+    params = {"name": "John Doe", "user_id": 1}
+    await set_db(query, params)
+
+    Args:
+        query_string (str): Query for DB to execute
+        params (dict): Parameters for the query
+
+    Returns:
+        bool: True if the operation was successful, False otherwise
+    """
+    try:
+        logger.info(f"Executing commit query: {query_string} with params: {params}")
+        async with AsyncSessionLocal() as conn:
+            await conn.execute(sqlalchemy.text(query_string), params)
+            await conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Error in interacting with database: {e}")
+        return False
+
 async def set_db(query_string: str):
     try:
         logger.info(f"Executing commit query: {query_string}")
@@ -159,22 +213,10 @@ async def set_db(query_string: str):
 async def async_test_db(): #TODO remove
     user_handle = "brandonlmk"
     query_string = f"SELECT id, agency_name FROM agencies WHERE user_handle = '{user_handle}'"
-    agency_profiles = await get_db(query_string)
+    query_string = "SELECT id, agency_name FROM agencies WHERE user_handle = :user_handle"
+    agency_profiles = await safe_get_db(query_string, params={})
     logger.info(agency_profiles) #
     return agency_profiles
-
-
-def test_db(): #TODO remove
-    with pool.connect() as conn:
-        user_handle = "Lizzie0111"
-        # Execute the query and fetch all results
-        agency_profiles = conn.execute(
-            sqlalchemy.text(
-                f"SELECT id, agency_name FROM agencies WHERE user_handle = '{user_handle}'"
-            )
-        ).fetchall()
-    logger.info(agency_profiles)
-    return
 
 @dataclass
 class WebhookUpdate:
@@ -315,7 +357,7 @@ async def save_applicant(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     async with AsyncSessionLocal() as conn:
         await conn.execute(
             sqlalchemy.text(
-        f"INSERT INTO applicants (user_handle, name, dob, past_exp, citizenship, race, gender, education, whatsapp_no) VALUES ('{context.user_data['user_handle']}', '{context.user_data['name']}', '{context.user_data['dob']}', '{context.user_data['past_experiences']}', '{context.user_data['citizenship']}', '{context.user_data['race']}', '{context.user_data['gender']}', '{context.user_data['highest_education']}', '{context.user_data['whatsapp_number']}')"
+        f"INSERT INTO applicants (user_handle, name, dob, past_exp, citizenship, race, gender, education, whatsapp_no, chat_id) VALUES ('{context.user_data['user_handle']}', '{context.user_data['name']}', '{context.user_data['dob']}', '{context.user_data['past_experiences']}', '{context.user_data['citizenship']}', '{context.user_data['race']}', '{context.user_data['gender']}', '{context.user_data['highest_education']}', '{context.user_data['whatsapp_number']}', {context.user_data['chat_id']})"
     )
         )
         await conn.commit()
@@ -633,7 +675,7 @@ async def draft_job_post_message(job_id) -> str:
     user_handle, chat_id, name, agency_name, agency_uen = results[0]
     # Draft message template
     message = f'''
-    <b><u>Example Job Post [ID: {job_id}</u></b> (Template to be changed)\n\n
+    <b><u>Example Job Post [ID: {job_id}]</u></b> (Template to be changed)\n\n
 <b>👨🏻‍💻 Agency</b>:\n{agency_name}\n\n
 <b>🏢Industry</b>:\n{company_industry}\n\n
 <b>👨‍💼Job Title</b>:\n{job_title}\n\n
@@ -658,6 +700,54 @@ async def post_job_in_channel(update: Update, context: ContextTypes.DEFAULT_TYPE
     reply_markup = InlineKeyboardMarkup(keyboard)
     await context.bot.send_message(chat_id=CHANNEL_ID, text=message, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
 
+async def apply_button_handler(update: Update, context:ContextTypes.DEFAULT_TYPE):
+    """
+    Should be called when apply button is clicked, pattern = apply_<
+    Handles the apply button for applicants when they are interested in a job posting
+    """    
+    query = update.callback_query
+    query_data = query.data
+    if query_data.startswith("apply_"):
+        job_post_id = query_data.split('_')[1]
+    chat_id = query.from_user.id
+    logger.info(f"Apply button clicked by {chat_id}")
+    # Choose applicant profile to apply for job
+    query_string = f'''SELECT id,name FROM applicants WHERE chat_id = "{chat_id}"'''
+    results = await get_db(query_string)
+    applicant_profiles = results
+    keyboard = []
+    for applicant_id, applicant_name in applicant_profiles:
+        logger.info(applicant_id)
+        logger.info(applicant_name)
+        keyboard.append([InlineKeyboardButton(f"Applicant - {applicant_name}", callback_data=f"ja_{job_post_id}_{applicant_id}")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await context.bot.send_message(chat_id=chat_id, text=f"You are appplying for Job ID {job_post_id}\n\nSelect the applicant profile you want to apply with:", reply_markup=reply_markup)
+
+async def select_applicant_apply(update: Update, context:ContextTypes.DEFAULT_TYPE):
+    '''
+    Called when applicant picks a profile within apply_button_handler
+    Handles selection of applicant profile for applying for a job posting
+    '''
+    # Get applicant UUID from callback query data
+    query = update.callback_query
+    query_data = query.data
+    if query_data.startswith("ja_"):
+        logger.info("Applicant ID found")
+        job_post_id, applicant_id = query_data.split('_')[1:]
+    query_string = "SELECT name FROM applicants WHERE id = :applicant_id"
+    params = {"applicant_id": applicant_id}
+    results = await safe_get_db(query_string, params)
+    applicant_name = results[0][0]
+    # Add applicant id to job application list #TODO need check if user has already applied with this profile
+    query_string = "INSERT INTO job_applications (applicant_id, job_id, shortlist_status) VALUES (:applicant_id, :job_post_id, 'no')"
+    params = {"applicant_id": applicant_id, "job_post_id": job_post_id}
+    if await safe_set_db(query_string, params):
+        logger.info("Inserted applicant into job post list")
+    await query.edit_message_text(text=f"{applicant_name} has successfully applied for Job {job_post_id}!") #TODO might need to add applicant_name to message
+
+
+
 async def save_jobpost(user_data): #TODO add status
     '''
     Saves job in DB and returns ID of new entry
@@ -675,10 +765,6 @@ async def save_jobpost(user_data): #TODO add status
         job_id = result.scalar_one()
         return job_id
 
-async def apply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    logger.info(f"Apply button clicked by {chat_id}")
-    context.bot.send_text(chat_id=chat_id, text='ApplyText')
 
 ###########################################################################################################################################################   
 # Cancel
@@ -1491,7 +1577,8 @@ async def main() -> None:
     application.add_handler(CallbackQueryHandler(delete_button, pattern='^delete\\|'))
     application.add_handler(CallbackQueryHandler(register_button, pattern='^(applicant|agency)$'))
     application.add_handler(CallbackQueryHandler(get_admin_acknowledgement, pattern='^(ss_|jp_)(accept|reject)_\d+$')) #TODO change to trasnaction ID pattern
-
+    application.add_handler(CallbackQueryHandler(select_applicant_apply, pattern="^ja_\d+_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
+    application.add_handler(CallbackQueryHandler(apply_button_handler, pattern='^apply_\d+$'))
     # Message Handler
     ## NIL ##
 
