@@ -14,6 +14,7 @@ You may also need to change the `listen` value in the uvicorn configuration to m
 Press Ctrl-C on the command line or send a signal to the process to stop the bot.
 """
 import os
+import re
 import mysql
 import mysql.connector
 import asyncio
@@ -267,6 +268,7 @@ async def ask_for_dob(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     context.user_data['registration_step'] = 'dob'
     return DOB
 
+
 async def ask_for_past_experiences(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("Entered ask_for_past_experiences")
     context.user_data['dob'] = update.message.text
@@ -277,35 +279,115 @@ async def ask_for_past_experiences(update: Update, context: ContextTypes.DEFAULT
 async def ask_for_citizenship(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("Entered ask_for_citizenship")
     context.user_data['past_experiences'] = update.message.text
-    await update.message.reply_text('Please enter your citizenship status:')
+
+    keyboard = [
+        [InlineKeyboardButton("Singaporean", callback_data='Singaporean')],
+        [InlineKeyboardButton("Permenant Resident(PR)", callback_data='Permenant Resident(PR)')],
+        [InlineKeyboardButton("Foreigner", callback_data='Foreigner')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text('Please enter your citizenship status:', reply_markup=reply_markup)
     context.user_data['registration_step'] = 'citizenship'
     return CITIZENSHIP
 
+
+async def citizenship_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info("Clicked citizenship button")
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data['citizenship'] = query.data
+
+     # Move to the next step
+    return await ask_for_race(update, context)
+    return RACE
+
 async def ask_for_race(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("Entered ask_for_race")
-    context.user_data['citizenship'] = update.message.text
-    await update.message.reply_text('Please enter your race:')
+    keyboard = [
+        [InlineKeyboardButton("Chinese", callback_data='Chinese')],
+        [InlineKeyboardButton("Malay", callback_data='Malay')],
+        [InlineKeyboardButton("Indian", callback_data='Indian')],
+        [InlineKeyboardButton("Eurasian", callback_data='Eurasian')],
+        [InlineKeyboardButton("Others", callback_data='Others')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.callback_query.edit_message_text('Please enter your race:',reply_markup=reply_markup)
     context.user_data['registration_step'] = 'race'
     return RACE
 
+
+async def race_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info("Race button clicked")
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data['race'] = query.data
+
+    # Move to the next step
+    return await ask_for_gender(update, context)
+    return GENDER
+
+
 async def ask_for_gender(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("Entered ask_for_gender")
-    context.user_data['race'] = update.message.text
-    await update.message.reply_text('Please enter your gender:')
+    keyboard = [
+        [
+            InlineKeyboardButton("Male", callback_data='male'),
+            InlineKeyboardButton("Female", callback_data='female'),
+        ]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.callback_query.edit_message_text('Please select your gender:', reply_markup=reply_markup)
+
     context.user_data['registration_step'] = 'gender'
     return GENDER
 
+async def gender_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info("Gender button clicked")
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data['gender'] = query.data
+
+    # Move to the next step
+    return await ask_for_highest_education(update, context)
+    return HIGHEST_EDUCATION
+
 async def ask_for_highest_education(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("Entered ask_for_highest_education")
-    context.user_data['gender'] = update.message.text
-    await update.message.reply_text('Please enter your highest education:')
+
+    keyboard = [
+        [InlineKeyboardButton("O-level Graduate", callback_data='O-level Graduate')],
+        [InlineKeyboardButton("ITE Graduate", callback_data='ITE Graduate')],
+        [InlineKeyboardButton("A-level Graduate", callback_data='A-level Graduate')],
+        [InlineKeyboardButton("Diploma Graduate", callback_data='Diploma Graduate')],
+        [InlineKeyboardButton("Degree Graduate", callback_data='Degree Graduate')],
+        [InlineKeyboardButton("Undergraduate", callback_data='Undergraduate')],
+        [InlineKeyboardButton("Studying in Poly/JC", callback_data='Studying in Poly/JC')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.callback_query.edit_message_text('Please select your highest education:',reply_markup= reply_markup)
+
     context.user_data['registration_step'] = 'highest_education'
     return HIGHEST_EDUCATION
 
+async def highest_education_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info("Education button clicked")
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data['highest_education'] = query.data
+
+    # Move to the next step
+    return await ask_for_whatsapp_number(update, context)
+    return WHATSAPP_NUMBER
+
+
 async def ask_for_whatsapp_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("Entered ask_for_whatsapp_number")
-    context.user_data['highest_education'] = update.message.text
-    await update.message.reply_text('Please enter your WhatsApp number:')
+    
+    await  update.callback_query.edit_message_text('Please enter your WhatsApp number:')
     context.user_data['registration_step'] = 'whatsapp_number'
     return WHATSAPP_NUMBER
 
@@ -315,7 +397,7 @@ async def save_applicant(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     async with AsyncSessionLocal() as conn:
         await conn.execute(
             sqlalchemy.text(
-        f"INSERT INTO applicants (user_handle, name, dob, past_exp, citizenship, race, gender, education, whatsapp_no) VALUES ('{context.user_data['user_handle']}', '{context.user_data['name']}', '{context.user_data['dob']}', '{context.user_data['past_experiences']}', '{context.user_data['citizenship']}', '{context.user_data['race']}', '{context.user_data['gender']}', '{context.user_data['highest_education']}', '{context.user_data['whatsapp_number']}')"
+        f"INSERT INTO applicants (user_handle, chat_id, name, dob, past_exp, citizenship, race, gender, education, whatsapp_no) VALUES ('{context.user_data['user_handle']}','{context.user_data['chat_id']}', '{context.user_data['name']}', '{context.user_data['dob']}', '{context.user_data['past_experiences']}', '{context.user_data['citizenship']}', '{context.user_data['race']}', '{context.user_data['gender']}', '{context.user_data['highest_education']}', '{context.user_data['whatsapp_number']}')"
     )
         )
         await conn.commit()
@@ -679,6 +761,11 @@ async def apply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     logger.info(f"Apply button clicked by {chat_id}")
     context.bot.send_text(chat_id=chat_id, text='ApplyText')
+
+###########################################################################################################################################################   
+
+
+
 
 ###########################################################################################################################################################   
 # Cancel
@@ -1411,10 +1498,10 @@ async def main() -> None:
         NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
         DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
         PAST_EXPERIENCES: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
-        CITIZENSHIP: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
-        RACE: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
-        GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
-        HIGHEST_EDUCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+        CITIZENSHIP: [CallbackQueryHandler(citizenship_button)],
+        RACE: [CallbackQueryHandler(race_button)],
+        GENDER: [CallbackQueryHandler(gender_button)],
+        HIGHEST_EDUCATION: [CallbackQueryHandler(highest_education_button)],
         WHATSAPP_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
         FULL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
         COMPANY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
@@ -1423,7 +1510,9 @@ async def main() -> None:
     fallbacks=[CommandHandler('cancel', cancel)]
 )
     application.add_handler(registration_conversation_handler)
-   
+
+
+
 # Edit profile convo handler
     edit_profile_handler = ConversationHandler(
         entry_points=[CommandHandler('editprofile', edit_profile)],
