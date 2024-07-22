@@ -851,6 +851,107 @@ async def save_jobpost(user_data): #TODO add status
 ###########################################################################################################################################################   
 # Purchasing shortlists
 
+CHECK_BALANCE, CHOOSE_AMOUNT = range(2)
+
+# Function to handle /purchase_shortlists command
+async def purchase_shortlists(update: Update, context: CallbackContext) -> int:
+    logger.info("Entered purchase_shortlists function")
+    chat_id = update.effective_chat.id
+
+    # Retrieve tokens and shortlists balance from the database
+    query_tokens = "SELECT tokens FROM token_balance WHERE chat_id = :chat_id"
+    tokens_result = await safe_get_db(query_tokens, {"chat_id": chat_id})
+    tokens = tokens_result[0][0] if tokens_result else 0
+
+    query_shortlists = "SELECT shortlist FROM shortlist_balance WHERE chat_id = :chat_id"
+    shortlists_result = await safe_get_db(query_shortlists, {"chat_id": chat_id})
+    shortlists = shortlists_result[0][0] if shortlists_result else 0
+
+    # Display current balances to the user
+    message = f"You currently have:\n{tokens} tokens\n{shortlists} shortlists"
+
+    if tokens < 5:
+        await update.message.reply_text(
+            message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchasetokens.", parse_mode='HTML'
+        )
+        return ConversationHandler.END
+    
+        # Ask user how many shortlists they want to buy
+    keyboard = [
+        [InlineKeyboardButton("Cancel", callback_data="cancel_purchase")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+
+    await update.message.reply_text(
+        message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nHow many shortlists would you like to buy? Please enter a multiple of 3.", parse_mode='HTML', reply_markup=reply_markup
+    )
+    
+    return CHOOSE_AMOUNT
+
+
+async def handle_amount_choice(update: Update, context: CallbackContext) -> int:
+    logger.info("Entered handle_amount_choice function")
+    chat_id = update.effective_chat.id
+
+    # Retrieve the number of shortlists the user wants to buy
+    try:
+        num_shortlists = int(update.message.text)
+    except ValueError:
+        await update.message.reply_text("Please enter a valid number.")
+        return CHOOSE_AMOUNT
+
+    if num_shortlists <= 0 or num_shortlists % 3 != 0:
+        await update.message.reply_text("Please enter a valid number that is a multiple of 3.")
+        return CHOOSE_AMOUNT
+
+    tokens_required = (num_shortlists // 3) * 5
+
+    # Retrieve current tokens balance
+    query_tokens = "SELECT tokens FROM token_balance WHERE chat_id = :chat_id"
+    tokens_result = await safe_get_db(query_tokens, {"chat_id": chat_id})
+    tokens = tokens_result[0][0] if tokens_result else 0
+
+    if tokens < tokens_required:
+        await update.message.reply_text(
+            "Insufficient tokens. Please purchase more tokens at /purchasetokens."
+        )
+        return ConversationHandler.END
+
+    # Update the token_balance and shortlist_balance tables
+    update_tokens_query = "UPDATE token_balance SET tokens = tokens - :tokens_required WHERE chat_id = :chat_id"
+    update_shortlists_query = "INSERT INTO shortlist_balance (chat_id, shortlist) VALUES (:chat_id, :new_shortlists) ON DUPLICATE KEY UPDATE shortlist = shortlist + :new_shortlists"
+
+    await safe_set_db(update_tokens_query, {"tokens_required": tokens_required, "chat_id": chat_id})
+    await safe_set_db(update_shortlists_query, {"chat_id": chat_id, "new_shortlists": num_shortlists})
+
+    # Retrieve updated balances
+    updated_tokens_result = await safe_get_db(query_tokens, {"chat_id": chat_id})
+    updated_shortlists_result = await safe_get_db("SELECT shortlist FROM shortlist_balance WHERE chat_id = :chat_id", {"chat_id": chat_id})
+
+    updated_tokens = updated_tokens_result[0][0] if updated_tokens_result else 0
+    updated_shortlists = updated_shortlists_result[0][0] if updated_shortlists_result else 0
+
+    # Send confirmation message with updated balances
+    await update.message.reply_text(
+    f"Purchase successful!\n\n"
+    f"You now have a total of <b>{updated_shortlists} shortlists</b>.\n"
+    f"You have <b>{updated_tokens} tokens</b> remaining.",
+    parse_mode='HTML'
+    )
+
+
+    return ConversationHandler.END
+
+
+# Function to handle cancellation
+async def cancel(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    await query.answer()
+    await query.message.reply_text("Operation cancelled.")
+    return ConversationHandler.END
+
+
 
 ###########################################################################################################################################################   
 # Shortlisting function
@@ -1810,7 +1911,20 @@ async def main() -> None:
     )
     application.add_handler(purchase_tokens_handler)
 
+#Purchasing shortlists convo handler
+    purchase_shortlists_handler = ConversationHandler(
+        entry_points=[CommandHandler('purchase_shortlists', purchase_shortlists)],
+        states={
+            CHOOSE_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount_choice),
+                            CallbackQueryHandler(cancel, pattern='^cancel_purchase$')]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)]
+    )
+    # Add handler to the application
+    application.add_handler(purchase_shortlists_handler)
 
+
+# Shortlisting applicants convo handler
     shortlist_handler = ConversationHandler(
     entry_points=[CommandHandler('shortlist', shortlist)],
     states={
