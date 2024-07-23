@@ -78,6 +78,7 @@ ADMIN_CHAT_ID = 566682368 #TODO change
 CHANNEL_ID = -1002192841091 #TODO change
 PORT = 8080
 BOT_TOKEN = os.environ['BOT_TOKEN'] # nosec B105
+JOB_POST_PRICE = 20
 
 # initialize Connector object
 connector = Connector()
@@ -215,7 +216,7 @@ async def async_test_db(): #TODO remove
     user_handle = "brandonlmk"
     query_string = f"SELECT id, agency_name FROM agencies WHERE user_handle = '{user_handle}'"
     query_string = "SELECT id, agency_name FROM agencies WHERE user_handle = :user_handle"
-    agency_profiles = await safe_get_db(query_string, params={})
+    agency_profiles = await safe_get_db(query_string, params={user_handle})
     logger.info(agency_profiles) #
     return agency_profiles
 
@@ -657,7 +658,7 @@ async def enter_new_value(update: Update, context: CallbackContext) -> int:
 # #Job Posting
 #TODO implement forwarding job post to admin and get acknowledgement
 
-SELECT_AGENCY, ENTER_JOB_DETAILS = range(2)
+SELECT_AGENCY, ENTER_JOB_DETAILS, CONFIRMATION_JOB_POST= range(3)
 
 # Function to start job posting
 async def job_post(update: Update, context: CallbackContext) -> int:
@@ -700,6 +701,143 @@ async def jobpost_button(update: Update, context: CallbackContext) -> int:
 
     return ENTER_JOB_DETAILS
 
+async def check_sufficient_tokens(update, context, chat_id, tokens_to_deduct):
+    chat_id = context.user_data['chat_id']
+    # Check if got entry in token_balance table
+    query_string = "SELECT EXISTS (SELECT 1 FROM token_balance WHERE chat_id = :chat_id)"
+    params = {"chat_id": chat_id}
+    results = await safe_get_db(query_string, params)
+    have_entry = results[0][0]
+    # There is an entry in the table
+    if have_entry: 
+        # Get balance from chat_id in token_balance table
+        query_string = "SELECT tokens FROM token_balance WHERE chat_id = :chat_id"
+        results = await safe_get_db(query_string, params)
+        token_balance = results[0][0]
+        # Check user's account balance
+        if (token_balance >= tokens_to_deduct): # Sufficient tokens within account
+            return True
+        else: return False
+    else: return False
+
+
+
+async def confirm_job_post(update, context):
+    '''
+    Handler for confirm button
+    '''
+
+    tokens_to_deduct = JOB_POST_PRICE
+    query = update.callback_query
+    chat_id = context.user_data['chat_id']
+    # Check if got entry in token_balance table
+    query_string = "SELECT EXISTS (SELECT 1 FROM token_balance WHERE chat_id = :chat_id)"
+    params = {"chat_id": chat_id}
+    results = await safe_get_db(query_string, params)
+    have_entry = results[0][0]
+    # There is an entry in the table
+    if have_entry: 
+        # Get balance from chat_id in token_balance table
+        query_string = "SELECT tokens FROM token_balance WHERE chat_id = :chat_id"
+        results = await safe_get_db(query_string, params)
+        token_balance = results[0][0]
+        # Check user's account balance
+        if (token_balance >= tokens_to_deduct): # Sufficient tokens within account
+            new_balance = token_balance - tokens_to_deduct
+            # confirmation_msg = await contex.bot.send_message(chat_id = chat_id, text=f"{action} will cost you {tokens_to_deduct} tokens.\nYou currently have {token_balance} tokens in your account.\n\nWould you like to continue? ")
+            # confirmation_msg_id = confirmation_msg.message_id
+            # Get user confirmation to continue
+
+            # Update new balance in token_balance
+            query_string = "UPDATE token_balance SET tokens = :new_balance WHERE chat_id = :chat_id"
+            params = {"new_balance": new_balance, "chat_id": chat_id}
+            if (await safe_set_db(query_string, params)):
+                job_id = await save_jobpost(context.user_data)
+                message = await draft_job_post_message(job_id)
+                await forward_to_admin_for_acknowledgement(update, context, message=message, job_post_id = job_id)
+                await query.answer()
+                logger.info(f"{tokens_to_deduct} tokens have been deducted from {chat_id}'s account")
+                await update.callback_query.message.edit_text(
+                    f"Purchase successful!\n\n"
+                    f"You have <b>{new_balance} tokens</b> remaining.",
+                    parse_mode='HTML'
+                )
+                return ConversationHandler.END
+            else:
+                logger.info("Issue with token deduction")
+        else:
+            return ConversationHandler.END
+            # return (False, 0)# Insufficient tokens
+    else:
+        return ConversationHandler.END
+        # return (False, 0) # No entry in token_balance
+async def cancel_job_post(update, context):
+    callback_query = update.callback_query
+    await callback_query.answer()
+    await callback_query.message.edit_text("Job Post cancelled!")
+    logger.info("CANCELLED!")
+    return ConversationHandler.END
+
+
+async def spend_tokens(update: Update, context: CallbackContext, chat_id, tokens_to_deduct, action: str):
+    """
+    1. Checks user's account balance
+    2a. If enough, show cost of action, user's current balance, and new balance (This cost X tokens, You have Y tokens, this will leave you with Z tokens. Would you like to continue?)
+    2b. If not enough, show cost of action, user's current balance and ask to top up. (This cost X tokens, unfortunately you only have Y tokens, please top up tokens through the /purchastokens command and try again)
+    3a. (From 2a) Deduct and return True
+    3b. (From 2b) Return False
+
+    Tells user how much an action will cost.
+    Checks if user has enough in account
+    If there is enough, request confirmation from user to spend 
+    Deducts number of tokens from chat_id in token_balance table of DB.
+    Checks if there are enough tokens first to spend. If not enough, returns False and suggests the /purchastokens command to user.
+    If there is enough, returns True
+
+    Args:
+        chat_id (_type_): Chat ID spending tokens
+        tokens_to_deduct (_type_): number of tokens to deduct/spend
+        action (str): Action that costs tokens, this will be sent to the user (e.g. Broadcasting this job offer)
+
+    Returns:
+        (bool, int)
+        bool: True if deduction went through, False otherwise.
+        int: Balance of account
+    """    
+    # Check if got entry in token_balance table
+    query_string = "SELECT EXISTS (SELECT 1 FROM token_balance WHERE chat_id = :chat_id)"
+    params = {"chat_id": chat_id}
+    results = await safe_get_db(query_string, params)
+    have_entry = results[0][0]
+    # There is an entry in the table
+    if have_entry: 
+        # Get balance from chat_id in token_balance table
+        query_string = "SELECT tokens FROM token_balance WHERE chat_id = :chat_id"
+        results = await safe_get_db(query_string, params)
+        token_balance = results[0][0]
+        # Check user's account balance
+        if (token_balance >= tokens_to_deduct): # Sufficient tokens within account
+            new_balance = token_balance - tokens_to_deduct
+            # confirmation_msg = await contex.bot.send_message(chat_id = chat_id, text=f"{action} will cost you {tokens_to_deduct} tokens.\nYou currently have {token_balance} tokens in your account.\n\nWould you like to continue? ")
+            # confirmation_msg_id = confirmation_msg.message_id
+            # Get user confirmation to continue
+
+            # Update new balance in token_balance
+            query_string = "UPDATE token_balance SET tokens = :new_balance WHERE chat_id = :chat_id"
+            params = {"new_balance": new_balance, "chat_id": chat_id}
+            if (await safe_set_db(query_string, params)):
+                logger.info(f"{tokens_to_deduct} tokens have been deducted from {chat_id}'s account")
+                return (True, new_balance)
+            else:
+                logger.info("Issue with token deduction")
+        else:
+            return (False, 0)# Insufficient tokens
+    else:
+        return (False, 0) # No entry in token_balance
+       
+
+
+
 # Callback function to handle job posting details input
 async def jobpost_text_handler(update: Update, context: CallbackContext) -> int:
     text = update.message.text
@@ -729,13 +867,32 @@ async def jobpost_text_handler(update: Update, context: CallbackContext) -> int:
 
         elif step == 'job_scope':
             context.user_data['jobpost_job_scope'] = text
-            job_id = await save_jobpost(context.user_data)
-            
-            message = await draft_job_post_message(job_id)
+            context.user_data['chat_id'] = update.effective_chat.id
+            chat_id = context.user_data['chat_id']
+            # job_id = await save_jobpost(context.user_data)
+
+            # Check if enough tokens in balance
+            have_enough = await check_sufficient_tokens(update, context, chat_id, JOB_POST_PRICE)
+            if have_enough:
+                # Keyboard for callback
+                keyboard = []
+                confirm_button = [InlineKeyboardButton("Confirm", callback_data="confirm_job_post")]
+                keyboard.append(confirm_button)
+                cancel_button = [InlineKeyboardButton("Cancel", callback_data="cancel_job_post")]
+                keyboard.append(cancel_button)
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                # Send confirmation message
+                await update.message.reply_text(text= f"This will cost you {JOB_POST_PRICE}, do you wish to continue?", reply_markup = reply_markup)
+                return CONFIRMATION_JOB_POST
+            else:
+                await update.message.reply_text(text= "You do not have sufficient tokens")
+                return ConversationHandler.END
+
+            # message = await draft_job_post_message(job_id)
             # Send to admin for approval
-            return await forward_to_admin_for_acknowledgement(update, context, message=message, job_post_id=job_id)
+            # return await forward_to_admin_for_acknowledgement(update, context, message=message, job_post_id=job_id)
             # Post job listing in channel
-            await post_job_in_channel(update, context, job_post_id=job_id)
+            # await post_job_in_channel(update, context, job_post_id=job_id)
 
     return ENTER_JOB_DETAILS
 
@@ -749,9 +906,9 @@ async def draft_job_post_message(job_id) -> str:
         str: Message to be approved by admin
     """    
     # Fetch job details from db
-    query_string = f"SELECT agency_id, job_title, company_industry, date_time, pay_rate, job_scope FROM job_posts WHERE id = '{job_id}'"
+    query_string = f"SELECT agency_id, job_title, company_industry, date_time, pay_rate, job_scope, other_req FROM job_posts WHERE id = '{job_id}'"
     results = await get_db(query_string)
-    agency_id, job_title, company_industry, date_time, pay_rate, job_scope = results[0]
+    agency_id, job_title, company_industry, date_time, pay_rate, job_scope, other_req = results[0]
     # Fetch agency details from agency_id
     query_string = f"SELECT user_handle, chat_id, name, agency_name, agency_uen FROM agencies WHERE id = '{agency_id}'"
     results = await get_db(query_string)
@@ -765,6 +922,8 @@ async def draft_job_post_message(job_id) -> str:
 <b>🤑Salary</b>:\n{pay_rate}\n\n
 <b>😓Job Scope</b>:\n{job_scope}\n\n
     '''
+    if other_req != "None":
+        message += f"<b>😓Job Scope</b>:\n{job_scope}\n\n"
     return message
 
 
@@ -1291,7 +1450,7 @@ async def forward_to_admin_for_acknowledgement(update: Update, context: ContextT
             reply_markup=reply_markup,
             parse_mode=ParseMode.HTML
         )
-        await update.message.reply_text(
+        await update.callback_query.message.reply_text(
             'Please note the following:\n\n'
             '1. No MLM jobs\n'
             '2. No SingPass required jobs\n'
@@ -1393,6 +1552,22 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
             # Post to channel
             message = await draft_job_post_message(job_post_id)
             await post_job_in_channel(update, context, message=message, job_post_id=job_post_id)
+            # Add 3 shortlist to user chat_id
+            num_shortlists = 3
+            query_shortlists = "SELECT shortlist FROM shortlist_balance WHERE chat_id = :chat_id"
+            shortlists_result = await safe_get_db(query_shortlists, {"chat_id": chat_id})
+                
+            # Check if entry for chat_id in shortlist_balance table
+            context.user_data['entry_present'] = 1 if shortlists_result else 0
+            # If have a chat_id entry in the shortlist_balance table, update value
+            if context.user_data['entry_present']:
+                update_shortlists_query = "UPDATE shortlist_balance SET shortlist = shortlist + :new_shortlists WHERE chat_id = :chat_id"
+                await safe_set_db(update_shortlists_query, {"chat_id": chat_id, "new_shortlists": num_shortlists})
+            #Else, create new entry in the shortlist_balance table
+            else:
+                insert_shortlists_query = "INSERT INTO shortlist_balance (chat_id, shortlist) VALUES (:chat_id, :new_shortlists)"
+                await safe_set_db(insert_shortlists_query, {"chat_id": chat_id, "new_shortlists": num_shortlists})
+
             # Alert user of approval
             await query.answer()  # Acknowledge the callback query to remove the loading state
             
@@ -1407,10 +1582,29 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
             query_string = f"UPDATE job_posts SET status = 'Rejected' WHERE id = '{job_post_id}'"
             await set_db(query_string)
             logger.info(f"Rejected {job_post_id} in database!")
+            # Give user back credits
+            query_string = "SELECT EXISTS (SELECT 1 FROM token_balance WHERE chat_id = :chat_id)"
+            params = {"chat_id": chat_id}
+            results = await safe_get_db(query_string, params)
+            have_entry = results[0][0]
+            # There is an entry in the table
+            logger.info(f"HAVE ENTRY: {have_entry}")
+            if have_entry: 
+                logger.info("entry exists in table")
+                # Give back credits
+                query_string = "UPDATE token_balance SET tokens = tokens + :price_of_job_post WHERE chat_id = :chat_id"
+                params = {
+                    "price_of_job_post": JOB_POST_PRICE,
+                    "chat_id": chat_id
+                }
+                await safe_set_db(query_string, params)
+            else: # Dont refund if it would have expired
+                logger.info("CREDITS EXPIRED, NO REFUND")
+
             await query.answer()  # Acknowledge the callback query to remove the loading state
             
             # Edit the caption of the photo message
-            await query.edit_message_text(text="You have rejected the Job Posting.\n\nAgency will be notified")
+            await query.edit_message_text(text="You have rejected the Job Posting.\n\nAgency will be notified and tokens refunded.")
             
             # Notify the user
             await context.bot.send_message(chat_id=chat_id, text="Your posting has been rejected by an admin. Please PM admin for more details")
@@ -1618,6 +1812,10 @@ async def main() -> None:
     states={
         SELECT_AGENCY: [CallbackQueryHandler(jobpost_button)],
         ENTER_JOB_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, jobpost_text_handler)],
+        CONFIRMATION_JOB_POST: [
+            CallbackQueryHandler(confirm_job_post, pattern='^confirm_job_post'),
+            CallbackQueryHandler(cancel_job_post, pattern='^cancel_job_post')
+        ]
     },
     fallbacks=[CommandHandler('cancel', cancel)]
 )
