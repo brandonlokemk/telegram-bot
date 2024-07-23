@@ -1188,7 +1188,7 @@ async def shortlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     agency_ids = [row[0] for row in agency_ids]
 
     # Retrieve job titles and industries for the agency_id(s) from the job_posts table
-    query = "SELECT id, job_title, company_industry FROM job_posts WHERE agency_id IN :agency_ids"
+    query = "SELECT id, job_title, company_industry FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
     job_posts = await safe_get_db(query, {"agency_ids": tuple(agency_ids)})
 
     if not job_posts:
@@ -1441,7 +1441,7 @@ async def view_shortlisted(update: Update, context: CallbackContext) -> int:
     agency_ids = [row[0] for row in agency_ids]
 
     # Retrieve job titles and industries for the agency_id(s) from the job_posts table
-    query = "SELECT id, job_title, company_industry FROM job_posts WHERE agency_id IN :agency_ids"
+    query = "SELECT id, job_title, company_industry FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
     jobs_result = await safe_get_db(query, {"agency_ids": tuple(agency_ids)})
 
     if not jobs_result:
