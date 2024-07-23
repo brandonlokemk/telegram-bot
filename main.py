@@ -79,6 +79,7 @@ CHANNEL_ID = -1002192841091 #TODO change
 PORT = 8080
 BOT_TOKEN = os.environ['BOT_TOKEN'] # nosec B105
 JOB_POST_PRICE = 20
+PART_JOB_POST_PRICE = 15
 
 # initialize Connector object
 connector = Connector()
@@ -216,7 +217,7 @@ async def async_test_db(): #TODO remove
     user_handle = "brandonlmk"
     query_string = f"SELECT id, agency_name FROM agencies WHERE user_handle = '{user_handle}'"
     query_string = "SELECT id, agency_name FROM agencies WHERE user_handle = :user_handle"
-    agency_profiles = await safe_get_db(query_string, params={user_handle})
+    agency_profiles = await safe_get_db(query_string, params={"user_handle": user_handle})
     logger.info(agency_profiles) #
     return agency_profiles
 
@@ -657,6 +658,36 @@ async def enter_new_value(update: Update, context: CallbackContext) -> int:
 ###########################################################################################################################################################   
 # #Job Posting
 #TODO implement forwarding job post to admin and get acknowledgement
+SELECT_AGENCY_REPOST, ENTER_JOB_DETAILS, CONFIRMATION_JOB_POST= range(3)
+async def job_repost(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+
+    # Retrieve agency profiles for the user_handle
+    async with AsyncSessionLocal() as conn:
+        # Execute the query and fetch all results
+        results = await conn.execute(
+            sqlalchemy.text(
+               f"SELECT id, name, agency_name FROM agencies WHERE chat_id = '{chat_id}'"
+               )
+        )
+        agency_profiles = results.fetchall()
+
+    if not agency_profiles:
+        await update.message.reply_text('You have no agency profiles to post a job from.')
+        return ConversationHandler.END
+
+    # Format profiles as inline buttons
+    keyboard = [
+        [InlineKeyboardButton(f"{agency[1]} - {agency[2]}", callback_data=f"jobpost|{agency[0]}")]
+        for agency in agency_profiles
+    ]
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text('Select the profile you want to use for job posting:', reply_markup=reply_markup)
+
+    return SELECT_AGENCY_REPOST
+
+
 
 SELECT_AGENCY, ENTER_JOB_DETAILS, CONFIRMATION_JOB_POST= range(3)
 
@@ -726,8 +757,9 @@ async def confirm_job_post(update, context):
     '''
     Handler for confirm button
     '''
-
     tokens_to_deduct = JOB_POST_PRICE
+    if context.user_data['jobpost_job_type'] == 'part':
+        tokens_to_deduct = PART_JOB_POST_PRICE
     query = update.callback_query
     chat_id = context.user_data['chat_id']
     # Check if got entry in token_balance table
@@ -864,28 +896,32 @@ async def jobpost_text_handler(update: Update, context: CallbackContext) -> int:
             context.user_data['jobpost_pay_rate'] = text
             await update.message.reply_text('Please describe the Job Scope and responsibilities:')
             context.user_data['jobpost_step'] = 'job_scope'
+        #TODO add context.user_data['jobpost_job_type'] and ['other_req']
+
 
         elif step == 'job_scope':
             context.user_data['jobpost_job_scope'] = text
             context.user_data['chat_id'] = update.effective_chat.id
             chat_id = context.user_data['chat_id']
             # job_id = await save_jobpost(context.user_data)
-
+            tokens_to_deduct = JOB_POST_PRICE
+            if context.user_data['jobpost_job_type'] == 'part':
+                tokens_to_deduct = PART_JOB_POST_PRICE
             # Check if enough tokens in balance
-            have_enough = await check_sufficient_tokens(update, context, chat_id, JOB_POST_PRICE)
+            have_enough = await check_sufficient_tokens(update, context, chat_id, tokens_to_deduct)
             if have_enough:
                 # Keyboard for callback
                 keyboard = []
-                confirm_button = [InlineKeyboardButton("Confirm", callback_data="confirm_job_post")]
+                confirm_button = [InlineKeyboardButton("Proceed", callback_data="confirm_job_post")]
                 keyboard.append(confirm_button)
                 cancel_button = [InlineKeyboardButton("Cancel", callback_data="cancel_job_post")]
                 keyboard.append(cancel_button)
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 # Send confirmation message
-                await update.message.reply_text(text= f"This will cost you {JOB_POST_PRICE}, do you wish to continue?", reply_markup = reply_markup)
+                await update.message.reply_text(text= f"This will cost {tokens_to_deduct} tokens, do you want to proceed with posting?", reply_markup = reply_markup)
                 return CONFIRMATION_JOB_POST
             else:
-                await update.message.reply_text(text= "You do not have sufficient tokens")
+                await update.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /x command!")
                 return ConversationHandler.END
 
             # message = await draft_job_post_message(job_id)
@@ -1411,7 +1447,7 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 # View Shortlisted applicants
 
 VIEW_JOBS, VIEW_APPLICANTS = range(2)
-
+#TODO add job id to when u view job to shortlist for
 # Function to handle /view_shortlisted command
 async def view_shortlisted(update: Update, context: CallbackContext) -> int:
     chat_id = update.effective_chat.id
