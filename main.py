@@ -658,7 +658,7 @@ async def enter_new_value(update: Update, context: CallbackContext) -> int:
 # #Job Posting
 #TODO implement forwarding job post to admin and get acknowledgement
 
-SELECT_AGENCY, ENTER_JOB_DETAILS, CONFIRMATION_JOB_POST= range(3)
+SELECT_AGENCY, ENTER_JOB_DETAILS, CONFIRMATION_JOB_POST, ENTER_JOB_TYPE, ENTER_OTHER_REQ= range(5)
 
 # Function to start job posting
 async def job_post(update: Update, context: CallbackContext) -> int:
@@ -695,11 +695,31 @@ async def jobpost_button(update: Update, context: CallbackContext) -> int:
     await query.answer()
 
     context.user_data['agency_id'] = query.data.split('|')[1]
-    context.user_data['jobpost_step'] = 'job_title'
+     # Ask for job type
+    keyboard = [
+        [InlineKeyboardButton("Full Time", callback_data="job_type_full_time")],
+        [InlineKeyboardButton("Part Time", callback_data="job_type_part_time")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text('Please select the type of job:', reply_markup=reply_markup)
 
+    return ENTER_JOB_TYPE
+
+# Callback function to handle job type selection
+async def job_type_selection(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "job_type_full_time":
+        context.user_data['jobpost_job_type'] = 'full'
+    elif query.data == "job_type_part_time":
+        context.user_data['jobpost_job_type'] = 'part'
+
+    context.user_data['jobpost_step'] = 'job_title'
     await query.edit_message_text('Please enter the Job Title:')
 
     return ENTER_JOB_DETAILS
+
 
 async def check_sufficient_tokens(update, context, chat_id, tokens_to_deduct):
     chat_id = context.user_data['chat_id']
@@ -836,8 +856,6 @@ async def spend_tokens(update: Update, context: CallbackContext, chat_id, tokens
         return (False, 0) # No entry in token_balance
        
 
-
-
 # Callback function to handle job posting details input
 async def jobpost_text_handler(update: Update, context: CallbackContext) -> int:
     text = update.message.text
@@ -869,30 +887,25 @@ async def jobpost_text_handler(update: Update, context: CallbackContext) -> int:
             context.user_data['jobpost_job_scope'] = text
             context.user_data['chat_id'] = update.effective_chat.id
             chat_id = context.user_data['chat_id']
-            # job_id = await save_jobpost(context.user_data)
 
             # Check if enough tokens in balance
             have_enough = await check_sufficient_tokens(update, context, chat_id, JOB_POST_PRICE)
             if have_enough:
                 # Keyboard for callback
-                keyboard = []
-                confirm_button = [InlineKeyboardButton("Confirm", callback_data="confirm_job_post")]
-                keyboard.append(confirm_button)
-                cancel_button = [InlineKeyboardButton("Cancel", callback_data="cancel_job_post")]
-                keyboard.append(cancel_button)
+                keyboard = [
+                    [InlineKeyboardButton("Confirm", callback_data="confirm_job_post")],
+                    [InlineKeyboardButton("Cancel", callback_data="cancel_job_post")],
+                ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 # Send confirmation message
-                await update.message.reply_text(text= f"This will cost you {JOB_POST_PRICE}, do you wish to continue?", reply_markup = reply_markup)
+                await update.message.reply_text(
+                    text=f"This will cost you {JOB_POST_PRICE}, do you wish to continue?", 
+                    reply_markup=reply_markup
+                )
                 return CONFIRMATION_JOB_POST
             else:
-                await update.message.reply_text(text= "You do not have sufficient tokens")
+                await update.message.reply_text(text="You do not have sufficient tokens")
                 return ConversationHandler.END
-
-            # message = await draft_job_post_message(job_id)
-            # Send to admin for approval
-            # return await forward_to_admin_for_acknowledgement(update, context, message=message, job_post_id=job_id)
-            # Post job listing in channel
-            # await post_job_in_channel(update, context, job_post_id=job_id)
 
     return ENTER_JOB_DETAILS
 
@@ -999,7 +1012,7 @@ async def save_jobpost(user_data): #TODO add status
     async with AsyncSessionLocal() as conn:
         result = await conn.execute(
             sqlalchemy.text(
-        f"INSERT INTO job_posts (agency_id, job_title, company_industry, date_time, pay_rate, job_scope, shortlist) VALUES ('{user_data['agency_id']}', '{user_data['jobpost_job_title']}', '{user_data['jobpost_company_industry']}', '{user_data['jobpost_date_time']}', '{user_data['jobpost_pay_rate']}', '{user_data['jobpost_job_scope']}', '0')"
+        f"INSERT INTO job_posts (agency_id, job_type, job_title, company_industry, date_time, pay_rate, job_scope, shortlist) VALUES ('{user_data['agency_id']}','{user_data['jobpost_job_type']}', '{user_data['jobpost_job_title']}', '{user_data['jobpost_company_industry']}', '{user_data['jobpost_date_time']}', '{user_data['jobpost_pay_rate']}', '{user_data['jobpost_job_scope']}', '0')"
     )
         )
         await conn.commit()
@@ -2315,6 +2328,7 @@ async def main() -> None:
     entry_points=[CommandHandler('jobpost', job_post)],
     states={
         SELECT_AGENCY: [CallbackQueryHandler(jobpost_button)],
+        ENTER_JOB_TYPE: [CallbackQueryHandler(job_type_selection, pattern='^job_type_')],
         ENTER_JOB_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, jobpost_text_handler)],
         CONFIRMATION_JOB_POST: [
             CallbackQueryHandler(confirm_job_post, pattern='^confirm_job_post'),
