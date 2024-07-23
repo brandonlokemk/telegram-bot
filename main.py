@@ -1007,23 +1007,418 @@ async def save_jobpost(user_data): #TODO add status
         job_id = result.scalar_one()
         return job_id
 
-
 ###########################################################################################################################################################   
+# Purchasing shortlists
 
+CHECK_BALANCE, CHOOSE_AMOUNT, CONFIRM_PURCHASE = range(3)
 
+# Function to handle /purchase_shortlists command
+async def purchase_shortlists(update: Update, context: CallbackContext) -> int:
+    logger.info("Entered purchase_shortlists function")
+    chat_id = update.effective_chat.id
 
+    # Retrieve tokens and shortlists balance from the database
+    query_tokens = "SELECT tokens FROM token_balance WHERE chat_id = :chat_id"
+    tokens_result = await safe_get_db(query_tokens, {"chat_id": chat_id})
+    tokens = tokens_result[0][0] if tokens_result else 0
 
-###########################################################################################################################################################   
-# Cancel
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancels and ends the conversation."""
-    user = update.message.from_user
-    logger.info("User %s canceled the conversation.", user.first_name)
+    query_shortlists = "SELECT shortlist FROM shortlist_balance WHERE chat_id = :chat_id"
+    shortlists_result = await safe_get_db(query_shortlists, {"chat_id": chat_id})
+    
+    # Check if entry for chat_id in shortlist_balance table
+    context.user_data['entry_present'] = 1 if shortlists_result else 0
+
+    # Set shortlist number to 0 if no entry present in shortlist_balance table
+    shortlists = shortlists_result[0][0] if shortlists_result else 0
+
+    # Display current balances to the user
+    message = f"You currently have:\n{tokens} tokens\n{shortlists} shortlists"
+
+    if tokens < 5:
+        await update.message.reply_text(
+            message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchasetokens.", parse_mode='HTML'
+        )
+        return ConversationHandler.END
+
+    # Ask user how many shortlists they want to buy
+    keyboard = [
+        [InlineKeyboardButton("Cancel", callback_data="shortlist_cancel_purchase")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
     await update.message.reply_text(
-        "Bye! I hope we can talk again some day.", reply_markup=ReplyKeyboardRemove()
+        message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nHow many shortlists would you like to buy? Please enter a multiple of 3.", parse_mode='HTML', reply_markup=reply_markup
+    )
+    
+    return CHOOSE_AMOUNT
+
+# Function to handle the amount choice and move to confirmation
+async def handle_amount_choice(update: Update, context: CallbackContext) -> int:
+    logger.info("Entered handle_amount_choice function")
+    chat_id = update.effective_chat.id
+
+    # Retrieve the number of shortlists the user wants to buy
+    try:
+        num_shortlists = int(update.message.text)
+    except ValueError:
+        await update.message.reply_text("Please enter a valid number.")
+        return CHOOSE_AMOUNT
+
+    if num_shortlists <= 0 or num_shortlists % 3 != 0:
+        await update.message.reply_text("Please enter a valid number that is a multiple of 3.")
+        return CHOOSE_AMOUNT
+
+    tokens_required = (num_shortlists // 3) * 5
+
+    # Retrieve current tokens balance
+    query_tokens = "SELECT tokens FROM token_balance WHERE chat_id = :chat_id"
+    tokens_result = await safe_get_db(query_tokens, {"chat_id": chat_id})
+    tokens = tokens_result[0][0] if tokens_result else 0
+
+    if tokens < tokens_required:
+        await update.message.reply_text(
+            "Insufficient tokens. Please purchase more tokens at /purchasetokens."
+        )
+        return ConversationHandler.END
+
+    # Store purchase details in user_data
+    context.user_data['num_shortlists'] = num_shortlists
+    context.user_data['tokens_required'] = tokens_required
+
+    # Create a confirmation button
+    keyboard = [
+        [InlineKeyboardButton("Confirm Purchase", callback_data="confirm_purchase")],
+        [InlineKeyboardButton("Cancel", callback_data="shortlist_cancel_purchase")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # Send the confirmation message
+    await update.message.reply_text(
+        f"You are about to purchase {num_shortlists} shortlists for {tokens_required} tokens.\n\n"
+        f"Do you want to proceed?",
+        reply_markup=reply_markup
+    )
+
+    return CONFIRM_PURCHASE
+
+# Function to handle the purchase confirmation
+async def confirm_purchase(update: Update, context: CallbackContext) -> int:
+    logger.info("Entered confirm_purchase function")
+    chat_id = update.effective_chat.id
+
+    # Retrieve the number of shortlists and tokens required from user_data
+    num_shortlists = context.user_data.get('num_shortlists')
+    tokens_required = context.user_data.get('tokens_required')
+
+    if not num_shortlists or not tokens_required:
+        await update.callback_query.message.edit_text("Something went wrong. Please try again.")
+        return ConversationHandler.END
+
+    # Update the token_balance and shortlist_balance tables
+    update_tokens_query = "UPDATE token_balance SET tokens = tokens - :tokens_required WHERE chat_id = :chat_id"
+    await safe_set_db(update_tokens_query, {"tokens_required": tokens_required, "chat_id": chat_id})
+
+    # If have a chat_id entry in the shortlist_balance table, update value
+    if context.user_data['entry_present']:
+        update_shortlists_query = "UPDATE shortlist_balance SET shortlist = shortlist + :new_shortlists WHERE chat_id = :chat_id"
+        await safe_set_db(update_shortlists_query, {"chat_id": chat_id, "new_shortlists": num_shortlists})
+    #Else, create new entry in the shortlist_balance table
+    else:
+        insert_shortlists_query = "INSERT INTO shortlist_balance (chat_id, shortlist) VALUES (:chat_id, :new_shortlists)"
+        await safe_set_db(insert_shortlists_query, {"chat_id": chat_id, "new_shortlists": num_shortlists})
+
+
+    # Retrieve updated balances
+    updated_tokens_result = await safe_get_db("SELECT tokens FROM token_balance WHERE chat_id = :chat_id", {"chat_id": chat_id})
+    updated_shortlists_result = await safe_get_db("SELECT shortlist FROM shortlist_balance WHERE chat_id = :chat_id", {"chat_id": chat_id})
+
+    updated_tokens = updated_tokens_result[0][0] if updated_tokens_result else 0
+    updated_shortlists = updated_shortlists_result[0][0] if updated_shortlists_result else 0
+
+    # Send confirmation message with updated balances
+    await update.callback_query.message.edit_text(
+        f"Purchase successful!\n\n"
+        f"You now have a total of <b>{updated_shortlists} shortlists</b>.\n"
+        f"You have <b>{updated_tokens} tokens</b> remaining.",
+        parse_mode='HTML'
     )
 
     return ConversationHandler.END
+
+# Function to handle cancellation
+async def shortlist_cancel(update: Update, context: CallbackContext) -> int:
+    logger.info("Entered cancel function")
+    callback_query = update.callback_query
+    logger.info(f"CALLBACK QUERY: {callback_query}")
+    await callback_query.answer()
+    await callback_query.message.edit_text("Shortlist purchasing canceled.")
+    return ConversationHandler.END
+
+###########################################################################################################################################################   
+# Shortlisting function
+SELECT_JOB, SHOW_APPLICANTS, DONE = range(3)
+
+# Function to start the shortlisting process
+async def shortlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info("Entered shortlist function")
+    chat_id = update.effective_chat.id
+    context.user_data['chat_id'] = chat_id
+
+    # Retrieve agency_id(s) for this chat_id from the agencies table
+    query = "SELECT id FROM agencies WHERE chat_id = :chat_id"
+    agency_ids = await safe_get_db(query, {"chat_id": chat_id})
+
+    if not agency_ids:
+        await update.message.reply_text("You do not have an agency profile! Type /register to create one.")
+        return ConversationHandler.END
+
+    agency_ids = [row[0] for row in agency_ids]
+
+    # Retrieve job titles and industries for the agency_id(s) from the job_posts table
+    query = "SELECT id, job_title, company_industry FROM job_posts WHERE agency_id IN :agency_ids"
+    job_posts = await safe_get_db(query, {"agency_ids": tuple(agency_ids)})
+
+    if not job_posts:
+        await update.message.reply_text("No job posts found for your agencies. To post a job, type /jobpost")
+        return ConversationHandler.END
+
+    # Retrieve shortlist balance
+    query_shortlists = "SELECT shortlist FROM shortlist_balance WHERE chat_id = :chat_id"
+    shortlists_result = await safe_get_db(query_shortlists, {"chat_id": chat_id})
+    shortlists = shortlists_result[0][0] if shortlists_result else 0
+    context.user_data['shortlists'] = shortlists
+
+    # Check if shortlists are zero
+    if shortlists <= 0:
+        keyboard = [
+            [InlineKeyboardButton("Proceed to view", callback_data="proceed")],
+            [InlineKeyboardButton("Cancel", callback_data="cancel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "You have no shortlists available.\n\nYou can only view the applicants details but not shortlist them.\n\n"
+            "Please purchase more at /purchase_shortlists if you need to shortlist applicants.",
+            reply_markup=reply_markup
+        )
+        return SELECT_JOB
+
+    # Display available jobs
+    keyboard = [[InlineKeyboardButton(f"{job[1]} - {job[2]}", callback_data=str(job[0]))] for job in job_posts]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Select a job to shortlist applicants for:", reply_markup=reply_markup)
+    return SELECT_JOB
+
+# Function to handle job selection
+async def select_job(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info("Entered select job function")
+    callback_query = update.callback_query
+    await callback_query.answer()
+    ##############################
+    # Handle the "Proceed" and "Cancel" actions
+    if callback_query.data == "proceed":
+        chat_id = context.user_data['chat_id']
+
+        # Retrieve agency_id(s) for this chat_id from the agencies table
+        query = "SELECT id FROM agencies WHERE chat_id = :chat_id"
+        agency_ids = await safe_get_db(query, {"chat_id": chat_id})
+
+        if not agency_ids:
+            await callback_query.message.reply_text("You do not have an agency profile! Type /register to create one.")
+            return ConversationHandler.END
+
+        agency_ids = [row[0] for row in agency_ids]
+
+        # Retrieve job titles and industries for the agency_id(s) from the job_posts table
+        query = "SELECT id, job_title, company_industry FROM job_posts WHERE agency_id IN :agency_ids"
+        job_posts = await safe_get_db(query, {"agency_ids": tuple(agency_ids)})
+
+        if not job_posts:
+            await callback_query.message.reply_text("No job posts found for your agencies. To post a job, type /jobpost")
+            return ConversationHandler.END
+
+        # Display available jobs
+        keyboard = [[InlineKeyboardButton(f"{job[1]} - {job[2]}", callback_data=str(job[0]))] for job in job_posts]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await callback_query.message.reply_text("Select a job to view applicants for:", reply_markup=reply_markup)
+        return SELECT_JOB
+
+    elif callback_query.data == "cancel":
+        await callback_query.message.edit_text("Shortlisting process cancelled.")
+        return ConversationHandler.END
+
+    ##############################
+    job_id = int(callback_query.data)
+    context.user_data['selected_job_id'] = job_id
+
+    # Retrieve the selected job title and company industry
+    query = "SELECT job_title, company_industry FROM job_posts WHERE id = :job_id"
+    job = await safe_get_db(query, {"job_id": job_id})
+
+    if not job:
+        await callback_query.message.reply_text("Selected job not found. Please try again later.")
+        return ConversationHandler.END
+
+    job_title, company_industry = job[0]
+
+    # Update the original message to indicate the selected job
+    await callback_query.message.edit_text(
+        f"You have picked <b>{job_title}</b> - <b>{company_industry}</b>",
+        parse_mode='HTML'
+    )
+
+    # Retrieve applicant IDs for the selected job from the job_applications table
+    query = "SELECT applicant_id FROM job_applications WHERE job_id = :job_id AND shortlist_status = 'no'"
+    applicant_ids = await safe_get_db(query, {"job_id": job_id})
+
+    if not applicant_ids:
+        await callback_query.message.reply_text("No applicants found for the selected job. Please try again later.")
+        return ConversationHandler.END
+
+    applicant_ids = [row[0] for row in applicant_ids]
+    context.user_data['remaining_applicants'] = applicant_ids # keep track to end convohandler once all applicants are shortlisted
+
+    # Retrieve applicant details for each applicant_id
+    for i, applicant_id in enumerate(applicant_ids, start=1):
+        query = (
+            "SELECT dob, past_exp, citizenship, race, gender, education "
+            "FROM applicants WHERE id = :applicant_id"
+        )
+        applicant = await safe_get_db(query, {"applicant_id": applicant_id})
+        if applicant:
+            dob, past_exp, citizenship, race, gender, education = applicant[0]
+            applicant_details = (
+                f"<b>Applicant {i}</b>\n\n"
+                f"<b>DOB:</b> {dob}\n"
+                f"<b>Past Experiences:</b> {past_exp}\n"
+                f"<b>Citizenship:</b> {citizenship}\n"
+                f"<b>Race:</b> {race}\n"
+                f"<b>Gender:</b> {gender}\n"
+                f"<b>Education:</b> {education}"
+            )
+            keyboard = [
+                [InlineKeyboardButton("Shortlist", callback_data=f"shortlist|{applicant_id}")],
+                [InlineKeyboardButton("Done", callback_data="done")]
+            ]
+
+            # Build keyboard based on shortlist availability. If 0 shortlists, no shortlist button shld be displayed
+            # Initialize reply_markup with default empty state
+            keyboard = []
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            shortlists = context.user_data.get('shortlists')
+            # Add Shortlist button if shortlists are available
+            if shortlists > 0:
+                keyboard.append([InlineKeyboardButton("Shortlist", callback_data=f"shortlist|{applicant_id}")])
+
+            # Add Done button
+            keyboard.append([InlineKeyboardButton("Done", callback_data="done")])
+
+            # Update reply_markup only if keyboard is not empty
+            if keyboard:
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await callback_query.message.reply_text(applicant_details, reply_markup=reply_markup, parse_mode='HTML')
+
+    return SHOW_APPLICANTS
+
+# Function to handle applicant shortlisting
+async def shortlist_applicant(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info("Entered shortlist_applicant function")
+    
+    callback_query = update.callback_query
+    await callback_query.answer()  # Acknowledge the callback query
+
+    # Extract applicant_id from callback data
+    _, applicant_id = callback_query.data.split('|')
+    job_id = context.user_data.get('selected_job_id')
+    chat_id = context.user_data.get('chat_id')  # Ensure chat_id is available
+    logger.info(f"CHAT ID: {chat_id}")
+
+
+    if not job_id:
+        await callback_query.message.reply_text("No job selected. Please select a job first.")
+        return SHOW_APPLICANTS  # Continue in the SHOW_APPLICANTS state
+
+    # Update the shortlist status for the selected applicant and job
+    logger.info("Updating database")
+    query = "UPDATE job_applications SET shortlist_status = 'yes' WHERE job_id = :job_id AND applicant_id = :applicant_id"
+    await safe_set_db(query, {"job_id": job_id, "applicant_id": applicant_id})
+
+    # Update the shortlist_balance table
+    logger.info("Updating shortlist_balance table")
+    query = """
+        INSERT INTO shortlist_balance (chat_id, shortlist)
+        VALUES (:chat_id, :shortlist)
+        ON DUPLICATE KEY UPDATE shortlist = shortlist - 1
+    """
+    await safe_set_db(query, {"chat_id": chat_id, "shortlist": context.user_data.get('shortlists', 0)})
+
+    # Remove the applicant from the list of remaining applicants
+    remaining_applicants = context.user_data.get('remaining_applicants', [])
+    remaining_applicants.remove(applicant_id)
+    context.user_data['remaining_applicants'] = remaining_applicants
+    
+    # Retrieve the remaining shortlists
+    context.user_data['shortlists'] -= 1
+    remaining_shortlists = context.user_data['shortlists']
+
+    # If no more remaining shortlists, end convohandler
+    if remaining_shortlists <= 0:
+        await callback_query.message.edit_text(
+            "You have no more shortlists available. Please purchase more at /purchase_shortlists."
+        )
+        return ConversationHandler.END
+
+    # Check if there are any remaining applicants to shortlist
+    if remaining_applicants:
+        # Provide feedback that the applicant has been shortlisted successfully
+        # remaining_shortlists = context.user_data['shortlists']
+        await callback_query.message.edit_text(
+            f"Applicant has been shortlisted successfully!\n\n"
+            f"You have {remaining_shortlists} shortlists left."
+        )
+        return SHOW_APPLICANTS  # Continue in the SHOW_APPLICANTS state
+    # If no more applicants, end the conversation
+    else:
+        await callback_query.message.edit_text(
+            "All applicants have been shortlisted.\n\n"
+            "No more shortlists available. Please purchase more at /purchase_shortlists."
+        )
+        return ConversationHandler.END
+
+# Function to handle "done" button click
+async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info("Entered done function")
+    callback_query = update.callback_query
+    logger.info(f"CALLBACK QUERY: {callback_query}")
+    await callback_query.answer()
+
+    # Retrieve the remaining shortlists
+    shortlists = context.user_data.get('shortlists', 0)
+    
+    await callback_query.message.reply_text(
+        f"You have completed the shortlisting process.\n\n"
+        f"You have a total of <b>{shortlists} shortlists</b> remaining.\n\n"
+        "If you need more shortlists, please purchase more at /purchase_shortlists.",
+        parse_mode='HTML'
+    )
+    
+    # Optionally, clean up any data or state if needed
+    context.user_data.clear()  # Clear user_data if necessary
+    
+    return ConversationHandler.END
+
+
+# ###########################################################################################################################################################   
+# # Cancel
+# async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     """Cancels and ends the conversation."""
+#     user = update.message.from_user
+#     logger.info("User %s canceled the conversation.", user.first_name)
+#     await update.message.reply_text(
+#         "Bye! I hope we can talk again some day.", reply_markup=ReplyKeyboardRemove()
+#     )
+
+#     return ConversationHandler.END
 
 ###########################################################################################################################################################   
 # Delete profile
@@ -1179,7 +1574,7 @@ async def description_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     return ConversationHandler.END
 
 ###########################################################################################################################################################   
-#Delete tokens
+#Delete token package
 
 SELECT_PACKAGE, CONFIRM_DELETE = range(2)
 
@@ -1244,6 +1639,7 @@ async def confirm_delete(update: Update, context: CallbackContext) -> int:
 
 # Function to handle the cancelation
 async def cancel(update: Update, context: CallbackContext) -> int:
+    logger.info("Entered wrong cancel fn")
     await update.message.reply_text("Action canceled.")
     return ConversationHandler.END
 
@@ -1860,6 +2256,43 @@ async def main() -> None:
     fallbacks=[CommandHandler('cancel', cancel)]
     )
     application.add_handler(purchase_tokens_handler)
+
+#Purchasing shortlists convo handler
+    purchase_shortlists_handler = ConversationHandler(
+    entry_points=[CommandHandler('purchase_shortlists', purchase_shortlists)],
+    states={
+        CHOOSE_AMOUNT: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount_choice),
+            CallbackQueryHandler(shortlist_cancel, pattern='^shortlist_cancel_purchase$')
+        ],
+        CONFIRM_PURCHASE: [
+            CallbackQueryHandler(confirm_purchase, pattern='^confirm_purchase$'),
+            CallbackQueryHandler(shortlist_cancel, pattern='^shortlist_cancel_purchase$')
+        ]
+    },
+    fallbacks=[CallbackQueryHandler(shortlist_cancel, pattern='shortlist_cancel_purchase')],
+    allow_reentry=True  # Allows re-entry if the conversation is ended or canceled
+    )
+    application.add_handler(purchase_shortlists_handler)
+
+# Shortlisting applicants convo handler
+    shortlist_handler = ConversationHandler(
+        entry_points=[CommandHandler('shortlist', shortlist)],
+        states={
+            SELECT_JOB: [
+                CallbackQueryHandler(select_job, pattern='^\d+$'),  # Job selection
+                CallbackQueryHandler(select_job, pattern='^proceed$'),  # Proceed action
+                CallbackQueryHandler(select_job, pattern='^cancel$')  # Cancel action
+            ],
+            SHOW_APPLICANTS: [
+                CallbackQueryHandler(shortlist_applicant, pattern='^shortlist\|'),
+                CallbackQueryHandler(done, pattern='^done$')
+            ]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)]
+    )
+    application.add_handler(shortlist_handler)
+
 
     # CallbackQueryHandlers
     application.add_handler(CallbackQueryHandler(delete_button, pattern='^delete\\|'))
