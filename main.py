@@ -1248,6 +1248,119 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     
     return ConversationHandler.END
 
+###########################################################################################################################################################
+# View Shortlisted applicants
+
+VIEW_JOBS, VIEW_APPLICANTS = range(2)
+
+# Function to handle /view_shortlisted command
+async def view_shortlisted(update: Update, context: CallbackContext) -> int:
+    chat_id = update.effective_chat.id
+    context.user_data['chat_id'] = chat_id
+
+    # Retrieve agency IDs for the given chat_id
+    query = "SELECT id FROM agencies WHERE chat_id = :chat_id"
+    agency_ids = await safe_get_db(query, {"chat_id": chat_id})
+
+    if not agency_ids:
+        await update.message.reply_text("No agencies found for your chat ID.")
+        return ConversationHandler.END
+    
+    agency_ids = [row[0] for row in agency_ids]
+
+    # Retrieve job titles and industries for the agency_id(s) from the job_posts table
+    query = "SELECT id, job_title, company_industry FROM job_posts WHERE agency_id IN :agency_ids"
+    jobs_result = await safe_get_db(query, {"agency_ids": tuple(agency_ids)})
+
+    if not jobs_result:
+        await update.message.reply_text("No jobs found for your agencies.")
+        return ConversationHandler.END
+
+    # Create buttons for each job
+    keyboard = [[InlineKeyboardButton(f"{job_title} - {company_industry}", callback_data=f"view_applicants_{job_id}")]
+                for job_id, job_title, company_industry in jobs_result]
+    keyboard.append([InlineKeyboardButton("Cancel", callback_data="cancel_view_shortlisted")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    view_shortlist_message = await update.message.reply_text("Select a job to view shortlisted applicants:", reply_markup=reply_markup)
+    context.user_data['view_shortlist_message_id'] = view_shortlist_message.id
+    return VIEW_JOBS
+
+# Function to handle job selection and show applicants
+async def view_applicants(update: Update, context: CallbackContext) -> int:
+    callback_query = update.callback_query
+    await callback_query.answer()
+
+    job_id = callback_query.data.split('_')[2]  # Extract job_id from callback data
+    job_id = int(job_id)
+    context.user_data['selected_job_id'] = job_id
+
+    # Retrieve the selected job title and company industry
+    query = "SELECT job_title, company_industry FROM job_posts WHERE id = :job_id"
+    job = await safe_get_db(query, {"job_id": job_id})
+
+    if not job:
+        await callback_query.message.reply_text("Selected job not found. Please try again later.")
+        return ConversationHandler.END
+
+    job_title, company_industry = job[0]
+
+    # Update the original message to indicate the selected job
+    await callback_query.message.edit_text(
+        f"You have picked <b>{job_title}</b> - <b>{company_industry}</b>",
+        parse_mode='HTML'
+    )
+
+    # Retrieve applicant IDs for the selected job
+    query_applicants = "SELECT applicant_id FROM job_applications WHERE job_id = :job_id AND shortlist_status = 'yes'"
+    applicants_result = await safe_get_db(query_applicants, {"job_id": job_id})
+    applicant_ids = [row[0] for row in applicants_result]
+
+    if not applicant_ids:
+        await callback_query.message.edit_text("You have not shortlisted any applicants.\n You can shortlist candidates at /shortlist.")
+        return ConversationHandler.END
+
+    # Send applicant details
+    for i, applicant_id in enumerate(applicant_ids, start=1):
+        query_details = (
+            "SELECT user_handle, name, dob, past_exp, citizenship, race, gender, education, whatsapp_no "
+            "FROM applicants WHERE id = :applicant_id"
+        )
+        details_result = await safe_get_db(query_details, {"applicant_id": applicant_id})
+        if details_result:
+            user_handle, name, dob, past_exp, citizenship, race, gender, education, wa_number = details_result[0]
+            await callback_query.message.reply_text(
+                f"<b>Applicant {i}</b>\n\n"
+                f"<b>User Handle:</b> @{user_handle}\n"
+                f"<b>Name:</b> {name}\n"
+                f"<b>DOB:</b> {dob}\n"
+                f"<b>Past Experience:</b> {past_exp}\n"
+                f"<b>Citizenship:</b> {citizenship}\n"
+                f"<b>Race:</b> {race}\n"
+                f"<b>Gender:</b> {gender}\n"
+                f"<b>Education:</b>{education}\n"
+                f"<b>WA Number:</b> {wa_number}", parse_mode='HTML'
+            )
+
+    # Add a cancel button
+    await callback_query.message.reply_text("End of the list. If you want to cancel, press the button below.")
+    keyboard = [[InlineKeyboardButton("Cancel", callback_data="cancel_view_shortlisted")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await callback_query.message.reply_text("If you want to cancel, press the button below.", reply_markup=reply_markup)
+
+    return VIEW_JOBS
+
+# Function to handle cancellation
+async def cancel_view_shortlisted(update: Update, context: CallbackContext) -> int:
+    logger.info("Entered cancel_view_shortlisted")
+    callback_query = update.callback_query
+    logger.info(f"cancel_view_shortlisted query: {callback_query}")
+    await callback_query.answer()
+    await callback_query.message.edit_text("Viewing shortlisted applicants has been canceled.")
+    return ConversationHandler.END
+
+
+
 
 # ###########################################################################################################################################################   
 # # Cancel
@@ -1480,7 +1593,6 @@ async def confirm_delete(update: Update, context: CallbackContext) -> int:
 
 # Function to handle the cancelation
 async def cancel(update: Update, context: CallbackContext) -> int:
-    logger.info("Entered wrong cancel fn")
     await update.message.reply_text("Action canceled.")
     return ConversationHandler.END
 
@@ -1812,10 +1924,6 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
             await context.bot.send_message(chat_id=chat_id, text="Your posting has been rejected by an admin. Please PM admin for more details")
 
 
-
-
-
-
 async def update_balance(chat_id, package_id):
     """
     Updates account balance in database for newly purchased package
@@ -2095,6 +2203,18 @@ async def main() -> None:
     )
     application.add_handler(shortlist_handler)
 
+# Viewing shortlisted applicants convo handler
+    view_shortlisted_handler = ConversationHandler(
+    entry_points=[CommandHandler('view_shortlisted', view_shortlisted)],
+    states={
+        VIEW_JOBS: [
+                CallbackQueryHandler(view_applicants, pattern='view_applicants_'),
+                CallbackQueryHandler(cancel_view_shortlisted, pattern='^cancel_view_shortlisted')]
+    },
+    fallbacks=[CallbackQueryHandler(cancel_view_shortlisted, pattern='^cancel_view_shortlisted')],
+    # allow_reentry=True
+)
+    application.add_handler(view_shortlisted_handler)
 
     # CallbackQueryHandlers
     application.add_handler(CallbackQueryHandler(delete_button, pattern='^delete\\|'))
