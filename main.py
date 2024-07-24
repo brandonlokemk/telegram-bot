@@ -2313,6 +2313,104 @@ async def purchasetokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     return SELECTING_PACKAGE
 
+SELECTING_SUBSCRIPTION, SUBSCRIPTION_PHOTO_REQUESTED = range(2)
+async def purchaseSubscription(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Entry command for user to purchase sub packages
+    Provides user with sub details
+
+    Args:
+        update (Update): _description_
+        context (ContextTypes.DEFAULT_TYPE): _description_
+
+    Returns:
+        int: returns new state for convo handler
+    """    
+    # Retrieve token packages from the database
+    context.user_data['chat_id'] = update.effective_chat.id
+    async with AsyncSessionLocal() as conn:
+        results = await conn.execute(
+            sqlalchemy.text(
+                "SELECT subpkg_code, sub_name, number_of_tokens, duration_months, price FROM subscription_packages"
+            )
+        )
+        subscription_packages = results.fetchall()
+    
+
+    # Format packages as inline buttons
+    keyboard = []
+    package_info = "<u><b>Subscription Packages:</b></u>\n\n"
+    for package in subscription_packages:
+        subpkg_id, sub_name, tokens_per_month, duration_months, price = package
+        package_info += f"<b>{sub_name}</b>:\n{tokens_per_month} tokens/month for {duration_months} months.\n\n"
+        keyboard.append([InlineKeyboardButton(sub_name, callback_data=f"select_subscription|{subpkg_id}")])
+
+    # Check if there are no packages available
+    if not subscription_packages:
+        await update.message.reply_text('No subscription packages available.')
+        return ConversationHandler.END
+
+    # Add static package info
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(package_info, reply_markup=reply_markup, parse_mode='HTML')
+
+    return SELECTING_PACKAGE
+
+async def subscription_selection(update: Update, context: CallbackContext) -> int:
+    """
+     Saves chosen subscription in context.user_data['selected_subscription_id']
+
+    Args:
+        update (Update): _description_
+        context (CallbackContext): _description_
+
+    Returns:
+        int: State for convo handler
+    """    
+    query = update.callback_query
+    await query.answer()
+    subpkg_id = query.data.split('|')[1]
+    chat_id = context.user_data['chat_id']
+    # Check if chat_id is already in an active subscription plan
+    query_string = '''
+    SELECT EXISTS (
+    SELECT 1
+    FROM subscription_balance
+    WHERE chat_id = :chat_id AND status = 'active')
+    '''
+    params = {"chat_id": chat_id}
+    results = await safe_get_db(query_string, params)
+    already_subscribed = results[0][0]
+    
+    if already_subscribed:
+        await query.edit_message_text("You are already in an active subscription plan.\nPlease wait for that to end before purchasing a new one.")
+        return ConversationHandler.END
+    # Store the selected package_id in the user context
+    context.user_data['selected_package_id'] = subpkg_id
+
+    # Fetch package details from the database
+    query_string = "SELECT sub_name, number_of_tokens, duration_months, price FROM subscription_packages WHERE subpkg_code = :subpkg_id"
+    params = {"subpkg_id": subpkg_id}
+    results = await safe_get_db(query_string, params)
+    subscription_details = results[0]
+    if subscription_details:
+        sub_name, tokens_per_month, duration_months, price = subscription_details
+        context.user_data['sub_name'] = sub_name
+        context.user_data['tokens_per_month'] = tokens_per_month
+        context.user_data['duration_months'] = duration_months
+        context.user_data['price'] = price
+
+        confirmation_message = f"You have picked the subscription package: {sub_name}\n\nYou are required to pay ${price} for {tokens_per_month} tokens per month for {duration_months} months.\n\nPlease make the payment and send a screenshot."
+        await query.edit_message_text(confirmation_message)
+
+        # Send a photo
+        photo_path = "paynow_qrcode.jpg"
+        await query.message.reply_photo(photo=open(photo_path, 'rb'))
+        
+    # return ConversationHandler.END
+    return SUBSCRIPTION_PHOTO_REQUESTED
+
+
 async def package_selection(update: Update, context: CallbackContext) -> int:
     """
      Saves chosen package in context.user_data['selected_package_id']
@@ -2714,7 +2812,7 @@ async def add_active_subscription(chat_id, package_id):
     # Create new entry
     query_string = "INSERT INTO subscription_balance (chat_id, start_date, end_date, last_distribution, status, subpkg_id) VALUES (:chat_id, :start_date, :end_date, :last_distribution, :status, :subpkg_id)"
     start_date = curr_date
-    end_date = relativedelta(months=duration_months)
+    end_date = curr_date + relativedelta(months=duration_months)
     last_distribution = curr_date
     status = 'active'
     params = {
@@ -3163,6 +3261,16 @@ async def main() -> None:
 )
     application.add_handler(delete_package_handler)
 
+# Purchasing tokens convo handler
+    purchase_subscription_handler = ConversationHandler(
+    entry_points=[CommandHandler('purchasesubscription', purchaseSubscription)],
+    states={
+        SELECTING_SUBSCRIPTION: [CallbackQueryHandler(subscription_selection)],
+        SUBSCRIPTION_PHOTO_REQUESTED: [MessageHandler(filters.PHOTO, verifyPayment)]
+    },
+    fallbacks=[CommandHandler('cancel', cancel)]
+    )
+    application.add_handler(purchase_subscription_handler)
 # Purchasing tokens convo handler
     purchase_tokens_handler = ConversationHandler(
     entry_points=[CommandHandler('purchasetokens', purchasetokens)],
