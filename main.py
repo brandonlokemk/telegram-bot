@@ -1966,28 +1966,113 @@ async def cancel_view_shortlisted(update: Update, context: CallbackContext) -> i
 #     return ConversationHandler.END
 
 ###########################################################################################################################################################   
+# View Profile
+async def view_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if chat_id == ADMIN_CHAT_ID: context.user_data['is_admin'] = True
+    else: context.user_data['is_admin']= False
+    # user_handle = update.effective_user.username
+    logger.info(chat_id)
+    if context.user_data['is_admin']:
+        # Select all profiles if admin
+        agencies_query_string = "SELECT id, agency_name, user_handle FROM agencies"
+        applicants_query_string = "SELECT id, name, user_handle FROM applicants"
+        params = {}
+    else:
+        agencies_query_string = "SELECT id,agency_name, user_handle FROM agencies WHERE chat_id = :chat_id"
+        applicants_query_string = "SELECT id,name, user_handle FROM applicants WHERE chat_id = :chat_id"
+        params = {"chat_id": chat_id}
+
+    results = await safe_get_db(agencies_query_string, params)
+    agency_profiles = results
+    results = await safe_get_db(applicants_query_string, params)
+    applicant_profiles = results
+
+    keyboard = []
+
+    for uuid, agency_name, user_handle in agency_profiles:
+        keyboard.append([InlineKeyboardButton(f"{user_handle}'s agency - {agency_name}", callback_data=f"view_agency_{uuid}")])
+    for uuid, applicant_name, user_handle in applicant_profiles:
+        keyboard.append([InlineKeyboardButton(f"{user_handle}'s applicant - {applicant_name}", callback_data=f"view_applicant_{uuid}")])
+        # Check if both profiles are empty
+    if not agency_profiles and not applicant_profiles:
+        await update.message.reply_text('You have no profiles to delete.')
+        return
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Select the profile you want to view:", reply_markup=reply_markup)
+    logger.info("exit view profile function")
+
+async def view_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("View button clicked!")
+    query = update.callback_query
+    query_data = query.data
+    profile_type, uuid = query_data.split('_')[1:]
+    logger.info(query_data)
+
+
+    # View selected applicant profile
+    if profile_type == "applicant":
+        query_string = "SELECT id, user_handle, name, dob, past_exp, citizenship, race, gender, education, whatsapp_no, chat_id FROM applicants WHERE id = :id"
+        params = {"id": uuid}
+        results = await safe_get_db(query_string, params)
+        selected_applicant = results[0]
+        applicant_uuid, applicant_user_handle, applicant_name, applicant_dob, applicant_past_exp, applicant_citizenship, applicant_race, applicant_gender, applicant_education, applicant_whatsapp_no, applicant_chat_id = selected_applicant
+        await query.answer()
+        # Display details to admin
+        await query.edit_message_text(f'''
+UUID: {applicant_uuid}\n
+Telegram Handle: {applicant_user_handle}\n
+Name: {applicant_name}\n
+Date of Birth: {applicant_dob}\n
+Past Experiences: {applicant_past_exp}\n
+Citizenship: {applicant_citizenship}\n
+Race: {applicant_race}\n
+Gender: {applicant_gender}\n
+Education: {applicant_education}\n
+Whatsapp No: {applicant_whatsapp_no}\n
+Chat ID: {applicant_chat_id}\n
+        ''')
+
+    # View selected agency profile
+    elif profile_type == "agency":
+        query_string = "SELECT id, user_handle, name, agency_name, agency_uen, chat_id FROM agencies WHERE id = :id"
+        params = {"id": uuid}
+        results = await safe_get_db(query_string, params)
+        selected_agency = results[0]
+        agency_uuid, agency_user_handle, agency_name, agency_agency_name, agency_uen, agency_chat_id = selected_agency
+        await query.answer()
+        # Display details to admin
+        await query.edit_message_text(f'''
+UUID: {agency_uuid}\n
+Telegram Handle: {agency_user_handle}\n
+Name: {agency_name}\n
+Agency Name: {agency_agency_name}\n
+Agency UEN: {agency_uen}\n
+Chat ID: {agency_chat_id}\n
+        ''')
+
 # Delete profile
 async def delete_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_handle = update.effective_user.username
-    logger.info(user_handle)
+    chat_id = update.effective_chat.id
+    if chat_id == ADMIN_CHAT_ID: context.user_data['is_admin'] = True
+    else: context.user_data['is_admin']= False
+    # user_handle = update.effective_user.username
+    logger.info(chat_id)
+    if context.user_data['is_admin']:
+        # Select all profiles if admin
+        agencies_query_string = "SELECT id, agency_name FROM agencies"
+        applicants_query_string = "SELECT id, name FROM applicants"
+        params = {}
+    else:
+        agencies_query_string = "SELECT id,agency_name FROM agencies WHERE chat_id = :chat_id"
+        applicants_query_string = "SELECT id,name FROM applicants WHERE chat_id = :chat_id"
+        params = {"chat_id": chat_id}
 
-    # Retrieve agency and applicant profiles for the user_handle
-    async with AsyncSessionLocal() as conn:
-        # Execute the query and fetch all results
-        results = await conn.execute(
-            sqlalchemy.text(
-               f"SELECT id,agency_name FROM agencies WHERE user_handle = '{user_handle}'"
-               )
-        )
-        agency_profiles = results.fetchall()
-        logger.info(agency_profiles)
-
-        results = await conn.execute(
-            sqlalchemy.text(
-                f"SELECT id,name FROM applicants WHERE user_handle = '{user_handle}'"
-                )
-        )
-        applicant_profiles = results.fetchall()
+    results = await safe_get_db(agencies_query_string, params)
+    agency_profiles = results
+    results = await safe_get_db(applicants_query_string, params)
+    applicant_profiles = results
 
     # Format profiles as inline buttons
     keyboard = []
@@ -2641,6 +2726,7 @@ async def update_balance(chat_id, package_id):
 
 
 ###########################################################################################################################################################
+#? Misc Commands
 # Get Grp ChatID and send message to group
 async def get_chat_id(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
@@ -2731,7 +2817,7 @@ async def main() -> None:
     application.add_handler(CommandHandler("help", help))
     # application.add_handler(CommandHandler("register", register))
     application.add_handler(CommandHandler("deleteprofile", delete_profile))
-
+    application.add_handler(CommandHandler("viewprofile", view_profile))
     application.add_handler(CommandHandler('get_chat_id', get_chat_id))
     # application.add_handler(CommandHandler('send_message_to_group', send_message_to_group))
 
@@ -2929,6 +3015,8 @@ async def main() -> None:
     application.add_handler(CallbackQueryHandler(get_admin_acknowledgement, pattern='^(ss_|jp_)(accept|reject)_\d+$')) #TODO change to trasnaction ID pattern
     application.add_handler(CallbackQueryHandler(select_applicant_apply, pattern="^ja_\d+_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
     application.add_handler(CallbackQueryHandler(apply_button_handler, pattern='^apply_\d+$'))
+    application.add_handler(CallbackQueryHandler(view_button_handler, pattern='^view_(agency|applicant)_(.+)$'))
+
     # Message Handler
     ## NIL ##
 
