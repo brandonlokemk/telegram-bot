@@ -80,6 +80,7 @@ PORT = 8080
 BOT_TOKEN = os.environ['BOT_TOKEN'] # nosec B105
 JOB_POST_PRICE = 20
 PART_JOB_POST_PRICE = 15
+JOB_REPOST_PRICE = 10
 
 # initialize Connector object
 connector = Connector()
@@ -658,36 +659,114 @@ async def enter_new_value(update: Update, context: CallbackContext) -> int:
 ###########################################################################################################################################################   
 # #Job Posting
 #TODO implement forwarding job post to admin and get acknowledgement
-SELECT_AGENCY_REPOST, ENTER_JOB_DETAILS, CONFIRMATION_JOB_POST= range(3)
+SELECT_AGENCY_REPOST, SELECT_JOB_TO_REPOST, CONFIRMATION_JOB_REPOST= range(3)
 async def job_repost(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-
+    context.user_data['chat_id'] = chat_id
     # Retrieve agency profiles for the user_handle
-    async with AsyncSessionLocal() as conn:
-        # Execute the query and fetch all results
-        results = await conn.execute(
-            sqlalchemy.text(
-               f"SELECT id, name, agency_name FROM agencies WHERE chat_id = '{chat_id}'"
-               )
-        )
-        agency_profiles = results.fetchall()
-
-    if not agency_profiles:
-        await update.message.reply_text('You have no agency profiles to post a job from.')
+    query_string = """
+    SELECT jp.id AS job_id
+    FROM job_posts jp
+    JOIN agencies a ON jp.agency_id = a.id
+    WHERE jp.status = 'approved' AND a.chat_id = :chat_id
+    """
+    params = {"chat_id": chat_id}
+    results = await safe_get_db(query_string, params)
+    previously_posted_jobs = results
+    
+    # Check for previously posted jobs
+    if not previously_posted_jobs:
+        await update.message.reply_text('You have no previous job listings.')
         return ConversationHandler.END
 
     # Format profiles as inline buttons
     keyboard = [
-        [InlineKeyboardButton(f"{agency[1]} - {agency[2]}", callback_data=f"jobpost|{agency[0]}")]
-        for agency in agency_profiles
+        [InlineKeyboardButton(f"Job ID: {job[0]}", callback_data=f"jobrepost|{job[0]}")]
+        for job in previously_posted_jobs
     ]
 
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text('Select the profile you want to use for job posting:', reply_markup=reply_markup)
+    await update.message.reply_text('Select the job which you want to repost:', reply_markup=reply_markup)
+    
+    return SELECT_JOB_TO_REPOST
 
-    return SELECT_AGENCY_REPOST
+async def jobrepost_button(update: Update, context: CallbackContext) -> int:
+    '''
+    Handles the selection of job in job_repost()
+    Callbackdata should be "jobrepost|<job_id>"
+    '''
+    query = update.callback_query
+    query_data = query.data
+    await query.answer()
+    context.user_data['repost_job_id'] = query_data.split('|')[1]
+    tokens_to_deduct = JOB_REPOST_PRICE
+    # Check if sufficient tokens in balance
+    chat_id = context.user_data['chat_id']
+    have_enough = await check_sufficient_tokens(update, context, chat_id, tokens_to_deduct)
+    if have_enough:
+        # Keyboard for callback
+        keyboard = []
+        confirm_button = [InlineKeyboardButton("Proceed", callback_data="confirm_job_repost")]
+        keyboard.append(confirm_button)
+        cancel_button = [InlineKeyboardButton("Cancel", callback_data="cancel_job_repost")]
+        keyboard.append(cancel_button)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        # Send confirmation message
+        await update.callback_query.message.reply_text(text= f"This will cost {tokens_to_deduct} tokens, do you want to proceed with reposting?", reply_markup = reply_markup)
+        return CONFIRMATION_JOB_REPOST
+    else:
+        await update.callback_query.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchasetokens command!")
+        return ConversationHandler.END
 
+async def confirm_job_repost(update, context):
+    '''
+    Handler for confirm job repost button
+    '''
+    tokens_to_deduct = JOB_REPOST_PRICE
+    query = update.callback_query
+    chat_id = context.user_data['chat_id']
+    # Check if got entry in token_balance table
+    query_string = "SELECT EXISTS (SELECT 1 FROM token_balance WHERE chat_id = :chat_id)"
+    params = {"chat_id": chat_id}
+    results = await safe_get_db(query_string, params)
+    have_entry = results[0][0]
+    # There is an entry in the table
+    if have_entry: 
+        # Get balance from chat_id in token_balance table
+        query_string = "SELECT tokens FROM token_balance WHERE chat_id = :chat_id"
+        results = await safe_get_db(query_string, params)
+        token_balance = results[0][0]
+        # Check user's account balance
+        if (token_balance >= tokens_to_deduct): # Sufficient tokens within account
+            new_balance = token_balance - tokens_to_deduct
+            # confirmation_msg = await contex.bot.send_message(chat_id = chat_id, text=f"{action} will cost you {tokens_to_deduct} tokens.\nYou currently have {token_balance} tokens in your account.\n\nWould you like to continue? ")
+            # confirmation_msg_id = confirmation_msg.message_id
+            # Get user confirmation to continue
 
+            # Update new balance in token_balance
+            query_string = "UPDATE token_balance SET tokens = :new_balance WHERE chat_id = :chat_id"
+            params = {"new_balance": new_balance, "chat_id": chat_id}
+            if (await safe_set_db(query_string, params)):
+                # Repost job
+                job_id = context.user_data['repost_job_id']
+                # job_id = await save_jobpost(context.user_data)
+                message = await draft_job_post_message(job_id, repost=True)
+                await forward_to_admin_for_acknowledgement(update, context, message=message, job_post_id = job_id)
+                await query.answer()
+                logger.info(f"{tokens_to_deduct} tokens have been deducted from {chat_id}'s account")
+                await update.callback_query.message.edit_text(
+                    f"Purchase successful!\n\n"
+                    f"You have <b>{new_balance} tokens</b> remaining.",
+                    parse_mode='HTML'
+                )
+                return ConversationHandler.END
+            else:
+                logger.info("Issue with token deduction")
+        else:
+            return ConversationHandler.END
+            # return (False, 0)# Insufficient tokens
+    else:
+        return ConversationHandler.END
 
 SELECT_AGENCY, ENTER_JOB_DETAILS, CONFIRMATION_JOB_POST= range(3)
 
@@ -751,15 +830,18 @@ async def check_sufficient_tokens(update, context, chat_id, tokens_to_deduct):
         else: return False
     else: return False
 
-
-
 async def confirm_job_post(update, context):
     '''
     Handler for confirm button
     '''
     tokens_to_deduct = JOB_POST_PRICE
+    # if part time job
     if context.user_data['jobpost_job_type'] == 'part':
         tokens_to_deduct = PART_JOB_POST_PRICE
+        part_time = True
+    else:
+        tokens_to_deduct = JOB_POST_PRICE
+        part_time = False
     query = update.callback_query
     chat_id = context.user_data['chat_id']
     # Check if got entry in token_balance table
@@ -807,6 +889,13 @@ async def cancel_job_post(update, context):
     callback_query = update.callback_query
     await callback_query.answer()
     await callback_query.message.edit_text("Job Post cancelled!")
+    logger.info("CANCELLED!")
+    return ConversationHandler.END
+
+async def cancel_job_repost(update, context):
+    callback_query = update.callback_query
+    await callback_query.answer()
+    await callback_query.message.edit_text("Job Repost cancelled!")
     logger.info("CANCELLED!")
     return ConversationHandler.END
 
@@ -932,34 +1021,50 @@ async def jobpost_text_handler(update: Update, context: CallbackContext) -> int:
 
     return ENTER_JOB_DETAILS
 
-async def draft_job_post_message(job_id) -> str:
+async def draft_job_post_message(job_id, repost=False, part_time=False) -> str:
     """    
     Generates job post id to be approved by admin and posted in channel later on.
     Args:
         job_id (_type_): Job Post ID, returned by save_jobpost
+        repost: If the job is a repost, attaches a repost tag if it is
 
     Returns:
         str: Message to be approved by admin
     """    
     # Fetch job details from db
-    query_string = f"SELECT agency_id, job_title, company_industry, date_time, pay_rate, job_scope, other_req FROM job_posts WHERE id = '{job_id}'"
+    query_string = f"SELECT agency_id, job_title, company_industry, date_time, pay_rate, job_scope, other_req, job_type FROM job_posts WHERE id = '{job_id}'"
     results = await get_db(query_string)
-    agency_id, job_title, company_industry, date_time, pay_rate, job_scope, other_req = results[0]
+    agency_id, job_title, company_industry, date_time, pay_rate, job_scope, other_req, job_type= results[0]
     # Fetch agency details from agency_id
     query_string = f"SELECT user_handle, chat_id, name, agency_name, agency_uen FROM agencies WHERE id = '{agency_id}'"
     results = await get_db(query_string)
     user_handle, chat_id, name, agency_name, agency_uen = results[0]
     # Draft message template
+    repost_prefix = "<b>[REPOST]</b>\n"
+    part_time_tag = "<b>[PART-TIME]</b>\n"
+    full_time_tag = "<b>[FULL-TIME]</b>\n"
+    tag = ''
+    if (job_type == 'part'):
+        part_time = True
+    else:
+        part_time = False
+    if part_time:
+        tag = part_time_tag
+    else:
+        tag = full_time_tag
+
     message = f'''
-    <b><u>Example Job Post [ID: {job_id}]</u></b> (Template to be changed)\n\n
+<b><u>Job Post [ID: {job_id}]</u></b> {tag}\n\n
 <b>👨🏻‍💻 Agency</b>:\n{agency_name}\n\n
 <b>🏢Industry</b>:\n{company_industry}\n\n
 <b>👨‍💼Job Title</b>:\n{job_title}\n\n
 <b>🤑Salary</b>:\n{pay_rate}\n\n
 <b>😓Job Scope</b>:\n{job_scope}\n\n
-    '''
+'''
+    if repost:
+        message = repost_prefix + message
     if other_req != "None":
-        message += f"<b>😓Job Scope</b>:\n{job_scope}\n\n"
+        message += f"<b>Additional Requirements</b>:\n{other_req}\n\n"
     return message
 
 
@@ -2075,9 +2180,24 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
             await context.bot.send_message(chat_id=chat_id, text="Your payment has been rejected by an admin. Please PM admin for more details")
 
     elif query_data.startswith('jp_'): 
+
+
+
         logger.info("JP query found")
         # Getting admin response as well as job ID
         status, job_post_id = query_data.split('_')[1:]
+        # Check if repost
+        repost = False
+        query_string = '''
+        SELECT EXISTS (
+        SELECT 1
+        FROM job_posts
+        WHERE id = :job_post_id AND status = 'approved')
+        '''
+        params = {"job_post_id": job_post_id}
+        results = await safe_get_db(query_string, params)
+        repost = results[0][0]
+
         # Get agency id based on job id
         query_string = f"SELECT agency_id FROM job_posts WHERE id = '{job_post_id}'"
         results = await get_db(query_string)
@@ -2089,12 +2209,13 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
 
 
         if status == 'accept':
-            # Update job post status to 'Approved'
-            query_string = f"UPDATE job_posts SET status = 'Approved' WHERE id = '{job_post_id}'"
-            await set_db(query_string)
-            logger.info(f"Approved {job_post_id} in database!")
+            if not repost: # if not repost
+                # Update job post status to 'Approved'
+                query_string = f"UPDATE job_posts SET status = 'Approved' WHERE id = '{job_post_id}'"
+                await set_db(query_string)
+                logger.info(f"Approved {job_post_id} in database!")
             # Post to channel
-            message = await draft_job_post_message(job_post_id)
+            message = await draft_job_post_message(job_post_id, repost=repost)
             await post_job_in_channel(update, context, message=message, job_post_id=job_post_id)
             # Add 3 shortlist to user chat_id
             num_shortlists = 3
@@ -2122,10 +2243,11 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
             await context.bot.send_message(chat_id=chat_id, text=f"Your posting has been approved by the admin!.\n\nIt has been posted in the channel with Job ID: {job_post_id}")
         
         elif status == 'reject':
-            # Update job post status to 'Rejected'
-            query_string = f"UPDATE job_posts SET status = 'Rejected' WHERE id = '{job_post_id}'"
-            await set_db(query_string)
-            logger.info(f"Rejected {job_post_id} in database!")
+            if not repost: # if not reposting
+                # Update job post status to 'Rejected'
+                query_string = f"UPDATE job_posts SET status = 'Rejected' WHERE id = '{job_post_id}'"
+                await set_db(query_string)
+                logger.info(f"Rejected {job_post_id} in database!")
             # Give user back credits
             query_string = "SELECT EXISTS (SELECT 1 FROM token_balance WHERE chat_id = :chat_id)"
             params = {"chat_id": chat_id}
@@ -2148,10 +2270,18 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
             await query.answer()  # Acknowledge the callback query to remove the loading state
             
             # Edit the caption of the photo message
-            await query.edit_message_text(text="You have rejected the Job Posting.\n\nAgency will be notified and tokens refunded.")
+            if repost: 
+                text = "You have rejected the repost.\n\nAgency will be notified and tokens refunded."
+            else:
+                text = "You have rejected the Job Posting.\n\nAgency will be notified and tokens refunded."
+            await query.edit_message_text(text=text)
             
             # Notify the user
-            await context.bot.send_message(chat_id=chat_id, text="Your posting has been rejected by an admin. Please PM admin for more details")
+            if repost:
+                text = "Your repost has been rejected by an admin. Please PM admin for more details"
+            else:
+                text = "Your posting has been rejected by an admin. Please PM admin for more details"
+            await context.bot.send_message(chat_id=chat_id, text=text)
 
 
 async def update_balance(chat_id, package_id):
@@ -2361,6 +2491,21 @@ async def main() -> None:
 )
     
     application.add_handler(job_post_handler)
+
+# Job REPOST convo handler
+    job_repost_handler = ConversationHandler(
+    entry_points=[CommandHandler('jobrepost', job_repost)],
+    states={
+        SELECT_JOB_TO_REPOST: [CallbackQueryHandler(jobrepost_button)],
+        CONFIRMATION_JOB_POST: [
+            CallbackQueryHandler(confirm_job_repost, pattern='^confirm_job_repost'),
+            CallbackQueryHandler(cancel_job_repost, pattern='^cancel_job_repost')
+        ]
+    },
+    fallbacks=[CommandHandler('cancel', cancel)]
+)
+    
+    application.add_handler(job_repost_handler)
     
 
 #Add token package convo handler
