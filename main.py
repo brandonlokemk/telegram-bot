@@ -22,6 +22,7 @@ import schedule
 import traceback
 import time
 import pymysql
+from dateutil.relativedelta import relativedelta
 from datetime import datetime, timedelta
 from typing import Callable
 from google.cloud.sql.connector import Connector, IPTypes
@@ -1828,28 +1829,113 @@ async def cancel_view_shortlisted(update: Update, context: CallbackContext) -> i
 #     return ConversationHandler.END
 
 ###########################################################################################################################################################   
+# View Profile
+async def view_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if chat_id == ADMIN_CHAT_ID: context.user_data['is_admin'] = True
+    else: context.user_data['is_admin']= False
+    # user_handle = update.effective_user.username
+    logger.info(chat_id)
+    if context.user_data['is_admin']:
+        # Select all profiles if admin
+        agencies_query_string = "SELECT id, agency_name, user_handle FROM agencies"
+        applicants_query_string = "SELECT id, name, user_handle FROM applicants"
+        params = {}
+    else:
+        agencies_query_string = "SELECT id,agency_name, user_handle FROM agencies WHERE chat_id = :chat_id"
+        applicants_query_string = "SELECT id,name, user_handle FROM applicants WHERE chat_id = :chat_id"
+        params = {"chat_id": chat_id}
+
+    results = await safe_get_db(agencies_query_string, params)
+    agency_profiles = results
+    results = await safe_get_db(applicants_query_string, params)
+    applicant_profiles = results
+
+    keyboard = []
+
+    for uuid, agency_name, user_handle in agency_profiles:
+        keyboard.append([InlineKeyboardButton(f"{user_handle}'s agency - {agency_name}", callback_data=f"view_agency_{uuid}")])
+    for uuid, applicant_name, user_handle in applicant_profiles:
+        keyboard.append([InlineKeyboardButton(f"{user_handle}'s applicant - {applicant_name}", callback_data=f"view_applicant_{uuid}")])
+        # Check if both profiles are empty
+    if not agency_profiles and not applicant_profiles:
+        await update.message.reply_text('You have no profiles to delete.')
+        return
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Select the profile you want to view:", reply_markup=reply_markup)
+    logger.info("exit view profile function")
+
+async def view_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("View button clicked!")
+    query = update.callback_query
+    query_data = query.data
+    profile_type, uuid = query_data.split('_')[1:]
+    logger.info(query_data)
+
+
+    # View selected applicant profile
+    if profile_type == "applicant":
+        query_string = "SELECT id, user_handle, name, dob, past_exp, citizenship, race, gender, education, whatsapp_no, chat_id FROM applicants WHERE id = :id"
+        params = {"id": uuid}
+        results = await safe_get_db(query_string, params)
+        selected_applicant = results[0]
+        applicant_uuid, applicant_user_handle, applicant_name, applicant_dob, applicant_past_exp, applicant_citizenship, applicant_race, applicant_gender, applicant_education, applicant_whatsapp_no, applicant_chat_id = selected_applicant
+        await query.answer()
+        # Display details to admin
+        await query.edit_message_text(f'''
+UUID: {applicant_uuid}\n
+Telegram Handle: {applicant_user_handle}\n
+Name: {applicant_name}\n
+Date of Birth: {applicant_dob}\n
+Past Experiences: {applicant_past_exp}\n
+Citizenship: {applicant_citizenship}\n
+Race: {applicant_race}\n
+Gender: {applicant_gender}\n
+Education: {applicant_education}\n
+Whatsapp No: {applicant_whatsapp_no}\n
+Chat ID: {applicant_chat_id}\n
+        ''')
+
+    # View selected agency profile
+    elif profile_type == "agency":
+        query_string = "SELECT id, user_handle, name, agency_name, agency_uen, chat_id FROM agencies WHERE id = :id"
+        params = {"id": uuid}
+        results = await safe_get_db(query_string, params)
+        selected_agency = results[0]
+        agency_uuid, agency_user_handle, agency_name, agency_agency_name, agency_uen, agency_chat_id = selected_agency
+        await query.answer()
+        # Display details to admin
+        await query.edit_message_text(f'''
+UUID: {agency_uuid}\n
+Telegram Handle: {agency_user_handle}\n
+Name: {agency_name}\n
+Agency Name: {agency_agency_name}\n
+Agency UEN: {agency_uen}\n
+Chat ID: {agency_chat_id}\n
+        ''')
+
 # Delete profile
 async def delete_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_handle = update.effective_user.username
-    logger.info(user_handle)
+    chat_id = update.effective_chat.id
+    if chat_id == ADMIN_CHAT_ID: context.user_data['is_admin'] = True
+    else: context.user_data['is_admin']= False
+    # user_handle = update.effective_user.username
+    logger.info(chat_id)
+    if context.user_data['is_admin']:
+        # Select all profiles if admin
+        agencies_query_string = "SELECT id, agency_name FROM agencies"
+        applicants_query_string = "SELECT id, name FROM applicants"
+        params = {}
+    else:
+        agencies_query_string = "SELECT id,agency_name FROM agencies WHERE chat_id = :chat_id"
+        applicants_query_string = "SELECT id,name FROM applicants WHERE chat_id = :chat_id"
+        params = {"chat_id": chat_id}
 
-    # Retrieve agency and applicant profiles for the user_handle
-    async with AsyncSessionLocal() as conn:
-        # Execute the query and fetch all results
-        results = await conn.execute(
-            sqlalchemy.text(
-               f"SELECT id,agency_name FROM agencies WHERE user_handle = '{user_handle}'"
-               )
-        )
-        agency_profiles = results.fetchall()
-        logger.info(agency_profiles)
-
-        results = await conn.execute(
-            sqlalchemy.text(
-                f"SELECT id,name FROM applicants WHERE user_handle = '{user_handle}'"
-                )
-        )
-        applicant_profiles = results.fetchall()
+    results = await safe_get_db(agencies_query_string, params)
+    agency_profiles = results
+    results = await safe_get_db(applicants_query_string, params)
+    applicant_profiles = results
 
     # Format profiles as inline buttons
     keyboard = []
@@ -2306,6 +2392,11 @@ async def verifyPayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """    
     chat_id = update.effective_chat.id
     package_id = context.user_data['selected_package_id']
+    # Check if subscription package
+    if 's' in package_id:
+        isSubscription = True
+    else:
+        isSubscription = False
     logger.info("LOG: verifyPayment() called")
     if update.message.photo:
         logger.info("LOG: photo received")
@@ -2345,6 +2436,10 @@ async def forward_to_admin_for_acknowledgement(update: Update, context: ContextT
         results = await get_db(query_string)
         logger.info(f"Results: {results}")
         chat_id, package_id = results[0] # unpack tuple
+        if 's' in package_id:
+            isSubscription = True
+        else:
+            isSubscription = False
         # Set callback data from ID provided
         ss_accept_callback_data = f"ss_accept_{transaction_id}" # Callbackdata has fixed format: ss_<transaction_ID> (screenshot) or jp_<transaction_ID> (job post)
         ss_reject_callback_data = f"ss_reject_{transaction_id}"
@@ -2354,10 +2449,14 @@ async def forward_to_admin_for_acknowledgement(update: Update, context: ContextT
             [InlineKeyboardButton("Reject", callback_data=ss_reject_callback_data)]
         ] # Can check transaction ID if need details
         reply_markup = InlineKeyboardMarkup(keyboard)
+        if isSubscription:
+            caption = f"Dear Admin, purchase made by {chat_id} for Subscription package {package_id}"
+        else:
+            caption = f"Dear Admin, purchase made by {chat_id} for Package {package_id}"
         await context.bot.send_photo(
             chat_id=ADMIN_CHAT_ID,
             photo=photo,
-            caption=f"Dear Admin, purchase made by {chat_id} for Package {package_id}", #TODO add details regarding transaction
+            caption=caption, #TODO add details regarding transaction
             reply_markup=reply_markup
         )
         await update.message.reply_text(
@@ -2416,6 +2515,12 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
     logger.info(f'Callback query data: {query.data}')
     query_data = query.data
     # Check which query data it is (which button admin pressed)
+    if query_data.startswith('sp_'):
+        logger.info("Subscription package query found")
+        # Getting admin response as well as transaction ID
+        status, transaction_id = query_data.split('_')[1:]
+
+
     if query_data.startswith('ss_'): 
         logger.info("SS query found")
         # Getting admin response as well as transaction ID
@@ -2425,6 +2530,10 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
         results = await get_db(query_string)
         logger.info(f"Results: {results}")
         chat_id, package_id = results[0]
+        if 's' in package_id:
+            isSubscription = True
+        else:
+            isSubscription = False
         # # Get chat id from agency id
         # query_string = f"SELECT chat_id FROM agencies WHERE id = '{agency_id}'"
         # results = await get_db(query_string)
@@ -2435,11 +2544,15 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
             query_string = f"UPDATE transactions SET status = 'Approved' WHERE transaction_id = '{transaction_id}'"
             await set_db(query_string)
             logger.info(f"Approved {transaction_id} in database!")
-            # Update balance of user account
-            (new_balance, exp_date) = await update_balance(chat_id=chat_id, package_id=package_id)
-            exp_date = exp_date.date()
-            await query.answer()  # Acknowledge the callback query to remove the loading state
-
+            if not isSubscription:
+                # Update balance of user account
+                (new_balance, exp_date) = await update_balance(chat_id=chat_id, package_id=package_id)
+                exp_date = exp_date.date()
+                await query.answer()  # Acknowledge the callback query to remove the loading state
+            elif isSubscription:
+                # Top up once and top up every month
+                (new_balance, exp_date) = await update_balance_subscription(chat_id, package_id)
+                await add_active_subscription(chat_id, package_id)
             
             # Edit the caption of the photo message
             await query.edit_message_caption(caption="You have acknowledged the screenshot.\n\nCredits have been transferred.")
@@ -2581,13 +2694,98 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
                 text = "Your posting has been rejected by an admin. Please PM admin for more details"
             await context.bot.send_message(chat_id=chat_id, text=text)
 
+async def add_active_subscription(chat_id, package_id):
+    '''
+    Assumes first month is already paid for, this will add to subscription_balance and set last distribution to today.
+    '''
+    # Checks if it is a subscription package
+    if 's' in package_id:
+        isSubscription = True
+    else:
+        raise Exception("Package is not a subscription")
+    # Get subs package details
+    query_string = "SELECT sub_name, number_of_tokens, duration_months, price FROM subscription_packages WHERE subpkg_code = :package_id"
+    params = {"package_id": package_id}
+    results = await safe_get_db(query_string, params)
+    package_details = results[0]
+    sub_name, tokens_per_month, duration_months, price = package_details
+    curr_date = datetime.now().date()
+
+    # Create new entry
+    query_string = "INSERT INTO subscription_balance (chat_id, start_date, end_date, last_distribution, status, subpkg_id) VALUES (:chat_id, :start_date, :end_date, :last_distribution, :status, :subpkg_id)"
+    start_date = curr_date
+    end_date = relativedelta(months=duration_months)
+    last_distribution = curr_date
+    status = 'active'
+    params = {
+        "chat_id": chat_id,
+        "start_date": start_date,
+        "end_date": end_date,
+        "last_distribution": last_distribution,
+        "status": status,
+        "subpkg_id": package_id
+    }
+    await safe_set_db(query_string, params)
+    return True
+
+async def update_balance_subscription(chat_id, package_id):
+    '''
+    Checks details of sub pacakge and gives user first month of payment
+    '''
+    # Checks if it is a subscription package
+    if 's' in package_id:
+        isSubscription = True
+    else:
+        raise Exception("Package is not a subscription")
+    # Get subs package details
+    query_string = "SELECT sub_name, number_of_tokens, duration_months, price FROM subscription_packages WHERE subpkg_code = :package_id"
+    params = {"package_id": package_id}
+    results = await safe_get_db(query_string, params)
+    package_details = results[0]
+    sub_name, tokens_per_month, duration_months, price = package_details
+    # Give one month of tokens first, with expiry being one month as well
+
+    # Check if user chat_id has row in token_balance table for db
+    query_string = f"SELECT EXISTS (SELECT 1 FROM token_balance WHERE chat_id = '{chat_id}')"
+    results = await get_db(query_string)
+    # Calculate new expiry date
+    curr_date = datetime.now()
+    new_date = curr_date + relativedelta(months=1) #! hardcoded package expiry to be each month
+    # If have existing entry
+    logger.info(f"Chat ID is already in token_balance table: {results}")
+    if (results[0][0]):
+        # Get balance and current expiry date of tokens
+        query_string = f"SELECT tokens, exp_date FROM token_balance WHERE chat_id = '{chat_id}'"
+        results = await get_db(query_string)
+        curr_tokens, curr_exp_date = results[0]
+        # Calculate new tokens
+        new_balance = curr_tokens + tokens_per_month
+        # If extended date is longer than current exp date, updates both token balance and exp date of chat_id
+        if new_date > curr_exp_date:
+            query_string = f"UPDATE token_balance SET tokens = '{new_balance}', exp_date = '{new_date}' WHERE chat_id = '{chat_id}'"
+
+        # Otherwise, dont touch exp date
+        else:
+            query_string = f"UPDATE token_balance SET tokens = '{new_balance}' WHERE chat_id = '{chat_id}'"
+            new_date = curr_exp_date # Just for returning the expiry date, new_date is not used here
+        # Update db
+        await set_db(query_string)
+        return new_balance, new_date
+    # If no existing entry, create new entry
+    else: 
+        # Create new entry
+        query_string = f"INSERT INTO token_balance (chat_id, tokens, exp_date) VALUES ('{chat_id}', '{tokens_per_month}', '{new_date}')"
+        await set_db(query_string)
+        logger.info("Chat ID does not exist in token_balance table")
+        return tokens_per_month, new_date
 
 async def update_balance(chat_id, package_id):
     """
     Updates account balance in database for newly purchased package
     Returns:
         Updated balance of account
-    """    
+    """
+
     # Check number of tokens and validity of purchased package, validity is in days
     query_string = f"SELECT number_of_tokens,validity FROM token_packages WHERE package_id = '{package_id}'"
     results = await get_db(query_string)
@@ -2632,6 +2830,7 @@ async def update_balance(chat_id, package_id):
 
 
 ###########################################################################################################################################################
+#? Misc Commands
 # Get Grp ChatID and send message to group
 async def get_chat_id(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
@@ -2675,7 +2874,8 @@ async def global_error_handler(update, context):
 
 ###########################################################################################################################################################   
 # Function to check and update expired credits
-async def remove_expired_credits(bot):
+async def daily_checks(bot):
+    # remove expired credits
     try:
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         query_string = f"SELECT chat_id, tokens FROM token_balance WHERE exp_date <= '{now}'"
@@ -2689,6 +2889,83 @@ async def remove_expired_credits(bot):
             logger.info(f"Removed {expiring_tokens} expired tokens from {chat_id} account")
             # notify users that their credits have expired
             await bot.send_message(chat_id=chat_id, text=f"{expiring_tokens} tokens have expired today!\n\nTo purchase more tokens, please use the /purchasetokens command!")
+    except Exception as e:
+        logger.info(e)
+    # check active subscriptions
+    try:
+        # get active subscriptions
+        now = datetime.now().date()
+
+        query_string = "SELECT id, chat_id, end_date, last_distribution, subpkg_id FROM subscription_balance WHERE status = :status"
+        params = {"status": 'active'}
+        active_subs = await safe_get_db(query_string, params)
+        # chat_id, end_date, last_distribution, subpkg_id = active_subs
+        # Get tokens_per_month from subscription_packages with subpkg_id
+
+
+
+        for sub_balance_id, chat_id, end_date, last_distribution, subpkg_id in active_subs:
+            # if expired
+            if now >= end_date:
+                # Set status to expired
+                query_string = "UPDATE subscription_balance SET status = :status WHERE id = :sub_balance_id"
+                params = {"status": "expired", "sub_balance_id": sub_balance_id}
+                continue # goes to next subscription
+
+            # if active subscription
+            query_string = "SELECT sub_name, number_of_tokens, duration_months FROM subscription_packages WHERE subpkg_code = :subpkg_code"
+            params = {"subpkg_code": subpkg_id}
+            results = await safe_get_db(query_string, params)
+            sub_name, tokens_per_month, duration_months = results[0]
+
+            # Calculate the next distribution date
+            next_distribution_date = last_distribution + relativedelta(months=1)
+            
+            if (now >= next_distribution_date):
+                # Set last distribution_date
+                query_string = "UPDATE subscription_balance SET last_distribution = :last_distribution WHERE id = :id"
+                params = {
+                    "last_distribution_date": now,
+                    "id": sub_balance_id
+                    }
+                await safe_set_db(query_string, params)
+                
+                # Check if user chat_id has row in token_balance table for db
+                query_string = f"SELECT EXISTS (SELECT 1 FROM token_balance WHERE chat_id = '{chat_id}')"
+                results = await get_db(query_string)
+                # Calculate new expiry date
+                curr_date = now
+                new_date = curr_date + relativedelta(months=1) #! hardcoded package expiry to be each month
+                # If have existing entry
+                logger.info(f"Chat ID is already in token_balance table: {results}")
+                if (results[0][0]):
+                    # Get balance and current expiry date of tokens
+                    query_string = f"SELECT tokens, exp_date FROM token_balance WHERE chat_id = '{chat_id}'"
+                    results = await get_db(query_string)
+                    curr_tokens, curr_exp_date = results[0]
+                    # Calculate new tokens
+                    new_balance = curr_tokens + tokens_per_month
+                    # If extended date is longer than current exp date, updates both token balance and exp date of chat_id
+                    if new_date > curr_exp_date:
+                        query_string = f"UPDATE token_balance SET tokens = '{new_balance}', exp_date = '{new_date}' WHERE chat_id = '{chat_id}'"
+                    # Otherwise, dont touch exp date
+                    else:
+                        query_string = f"UPDATE token_balance SET tokens = '{new_balance}' WHERE chat_id = '{chat_id}'"
+                        new_date = curr_exp_date # Just for returning the expiry date, new_date is not used here
+                    # Update db
+                    await set_db(query_string)
+                    bot.send_message(chat_id=chat_id, text=f"{tokens_per_month} has been allocated to your account.\nYour have a new balance of {new_balance}, expiring on {new_date}.")
+
+                    # return new_balance, new_date
+                # If no existing entry, create new entry
+                else: 
+                    # Create new entry
+                    query_string = f"INSERT INTO token_balance (chat_id, tokens, exp_date) VALUES ('{chat_id}', '{tokens_per_month}', '{new_date}')"
+                    await set_db(query_string)
+                    logger.info("Chat ID does not exist in token_balance table")
+                    bot.send_message(chat_id=chat_id, text=f"{tokens_per_month} has been allocated to your account.\nYour have a new balance of {tokens_per_month}, expiring on {new_date}.")
+
+                    # return tokens_per_month, new_date
     except Exception as e:
         logger.info(e)
 
@@ -2722,7 +2999,7 @@ async def main() -> None:
     application.add_handler(CommandHandler("help", help))
     # application.add_handler(CommandHandler("register", register))
     application.add_handler(CommandHandler("deleteprofile", delete_profile))
-
+    application.add_handler(CommandHandler("viewprofile", view_profile))
     application.add_handler(CommandHandler('get_chat_id', get_chat_id))
     # application.add_handler(CommandHandler('send_message_to_group', send_message_to_group))
 
@@ -2952,6 +3229,8 @@ async def main() -> None:
     application.add_handler(CallbackQueryHandler(get_admin_acknowledgement, pattern='^(ss_|jp_)(accept|reject)_\d+$')) #TODO change to trasnaction ID pattern
     application.add_handler(CallbackQueryHandler(select_applicant_apply, pattern="^ja_\d+_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
     application.add_handler(CallbackQueryHandler(apply_button_handler, pattern='^apply_\d+$'))
+    application.add_handler(CallbackQueryHandler(view_button_handler, pattern='^view_(agency|applicant)_(.+)$'))
+
     # Message Handler
     ## NIL ##
 
@@ -3011,7 +3290,7 @@ async def main() -> None:
         )
     )
     loop = asyncio.get_event_loop()
-    schedule.every().day.at("00:00").do(lambda: asyncio.run_coroutine_threadsafe(remove_expired_credits(application.bot), loop))
+    schedule.every().day.at("00:00").do(lambda: asyncio.run_coroutine_threadsafe(daily_checks(application.bot), loop))
 
     # Create the asyncio task for running the schedule
     schedule_task = loop.create_task(run_schedule())
