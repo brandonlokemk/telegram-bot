@@ -712,144 +712,6 @@ async def enter_new_value(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 
-# SELECT_PROFILE, SELECT_ATTRIBUTE, ENTER_NEW_VALUE = range(3)
-
-# # Command handler to start editing profile
-# async def edit_profile(update: Update, context: CallbackContext) -> int:
-#     user_handle = update.effective_user.username
-
-#     # Retrieve agency and applicant profiles for the user_handle
-#     async with AsyncSessionLocal() as conn:
-#         results = await conn.execute(
-#             sqlalchemy.text(
-#                 f"SELECT id, agency_name FROM agencies WHERE user_handle = '{user_handle}'"
-#             )
-#         )
-#         agency_profiles = results.fetchall()
-
-#     async with AsyncSessionLocal() as conn:
-#         results = await conn.execute(
-#             sqlalchemy.text(
-#                 f"SELECT id, name FROM applicants WHERE user_handle = '{user_handle}'"
-#             )
-#         )
-#         applicant_profiles = results.fetchall()
-
-#     # Format profiles as inline buttons
-#     keyboard = []
-#     for id, agency_name in agency_profiles:
-#         keyboard.append([InlineKeyboardButton(f"Agency - {agency_name}", callback_data=f"edit_profile|agency|{id}")])
-
-#     for id, applicant_name in applicant_profiles:
-#         keyboard.append([InlineKeyboardButton(f"Applicant - {applicant_name}", callback_data=f"edit_profile|applicant|{id}")])
-
-#     # Check if both profiles are empty
-#     if not agency_profiles and not applicant_profiles:
-#         await update.message.reply_text('You have no profiles to edit.')
-#         return ConversationHandler.END
-
-#     reply_markup = InlineKeyboardMarkup(keyboard)
-#     await update.message.reply_text('Select the profile you want to edit:', reply_markup=reply_markup)
-
-#     return SELECT_PROFILE
-
-# # Callback function to handle profile selection
-# async def select_profile(update: Update, context: CallbackContext) -> int:
-#     query = update.callback_query
-#     await query.answer()
-
-#     try:
-#         # Extracting profile type and id from callback_data
-#         parts = query.data.split('|')
-#         profile_type = parts[1]
-#         profile_id = parts[2]
-
-#         context.user_data['edit_profile_type'] = profile_type
-#         context.user_data['edit_profile_id'] = profile_id
-
-#         if profile_type == 'agency':
-#             keyboard = [
-#                 [InlineKeyboardButton("Name", callback_data='edit_attribute|agency|name')],
-#                 [InlineKeyboardButton("Agency Name", callback_data='edit_attribute|agency|agency_name')],
-#                 [InlineKeyboardButton("Company UEN", callback_data='edit_attribute|agency|company_uen')]
-#             ]
-#         elif profile_type == 'applicant':
-#             keyboard = [
-#                 [InlineKeyboardButton("Name", callback_data='edit_attribute|applicant|name')],
-#                 [InlineKeyboardButton("Date of Birth", callback_data='edit_attribute|applicant|dob')],
-#                 [InlineKeyboardButton("Past Experiences", callback_data='edit_attribute|applicant|past_exp')],
-#                 [InlineKeyboardButton("Citizenship", callback_data='edit_attribute|applicant|citizenship')],
-#                 [InlineKeyboardButton("Race", callback_data='edit_attribute|applicant|race')],
-#                 [InlineKeyboardButton("Gender", callback_data='edit_attribute|applicant|gender')],
-#                 [InlineKeyboardButton("Highest Education", callback_data='edit_attribute|applicant|education')],
-#                 [InlineKeyboardButton("WhatsApp Number", callback_data='edit_attribute|applicant|whatsapp')]
-#             ]
-
-#         reply_markup = InlineKeyboardMarkup(keyboard)
-#         await query.edit_message_text('Select the attribute you want to edit:', reply_markup=reply_markup)
-
-#         return SELECT_ATTRIBUTE
-
-#     except IndexError:
-#         logger.info(f"Error: Malformed callback_data - {query.data}")
-
-#     return ConversationHandler.END
-
-# # Callback function to handle attribute selection
-# async def select_attribute(update: Update, context: CallbackContext) -> int:
-#     query = update.callback_query
-#     await query.answer()
-
-#     try:
-#         parts = query.data.split('|')
-#         profile_type = parts[1]
-#         attribute = parts[2]
-
-#         context.user_data['edit_attribute'] = attribute
-
-#         await query.edit_message_text(f"Please enter the new value for {attribute.replace('_', ' ').title()}:")
-        
-#         return ENTER_NEW_VALUE
-
-#     except IndexError:
-#         logger.info(f"Error: Malformed callback_data - {query.data}")
-
-#     return ConversationHandler.END
-
-# # Callback function to handle new value input
-# async def enter_new_value(update: Update, context: CallbackContext) -> int:
-#     new_value = update.message.text
-#     profile_type = context.user_data['edit_profile_type']
-#     profile_id = context.user_data['edit_profile_id']
-#     attribute = context.user_data['edit_attribute']
-
-#     try:
-#         if profile_type == 'agency':
-#             async with AsyncSessionLocal() as conn:
-#                 await conn.execute(
-#                     sqlalchemy.text(
-#                 f"UPDATE agencies SET {attribute} = '{new_value}' WHERE id = '{profile_id}'"
-#                 )
-#                 )
-#                 await conn.commit()
-
-#         elif profile_type == 'applicant':
-#             async with AsyncSessionLocal() as conn:
-#                 await conn.execute(
-#                     sqlalchemy.text(
-#                 f"UPDATE applicants SET {attribute} = '{new_value}' WHERE id = '{profile_id}'"
-#                 )
-#                 )
-#                 await conn.commit()
-#         await update.message.reply_text('Profile updated successfully!')
-#         context.user_data.clear()  # Clear user data after successful update
-
-#     except Exception as e:
-#         logger.info(f"Unexpected error: {str(e)}")
-#         await update.message.reply_text('An error occurred while updating the profile.')
-
-#     return ConversationHandler.END
-
 ###########################################################################################################################################################   
 # #Job Posting
 #TODO implement forwarding job post to admin and get acknowledgement
@@ -2056,6 +1918,65 @@ async def delete_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.info(f"Unexpected error: {str(e)}")
 
 ###########################################################################################################################################################   
+# Add subscription packages
+
+GET_SUB_NAME, GET_NUM_MONTHS, GET_TOKENS_PER_MONTH, GET_PRICE = range(4)
+
+async def start_add_subscription(update: Update, context: CallbackContext) -> int:
+    await update.message.reply_text("Please enter the subscription name:")
+    return GET_SUB_NAME
+
+async def get_subscription_name(update: Update, context: CallbackContext) -> int:
+    context.user_data['sub_name'] = update.message.text
+    await update.message.reply_text("Please enter the number of months for the subscription:")
+    return GET_NUM_MONTHS
+
+async def get_num_months(update: Update, context: CallbackContext) -> int:
+    try:
+        num_months = int(update.message.text)
+        context.user_data['num_months'] = num_months
+        await update.message.reply_text("Please enter the number of tokens per month:")
+        return GET_TOKENS_PER_MONTH
+    except ValueError:
+        await update.message.reply_text("Invalid input. Please enter a valid number of months.")
+        return GET_NUM_MONTHS
+
+async def get_tokens_per_month(update: Update, context: CallbackContext) -> int:
+    try:
+        tokens_per_month = int(update.message.text)
+        context.user_data['tokens_per_month'] = tokens_per_month
+        await update.message.reply_text("Please enter the total price of the subscription package:")
+        return GET_PRICE
+    except ValueError:
+        await update.message.reply_text("Invalid input. Please enter a valid number of tokens per month.")
+        return GET_TOKENS_PER_MONTH
+
+async def get_price(update: Update, context: CallbackContext) -> int:
+    try:
+        price = float(update.message.text)
+        context.user_data['price'] = price
+        
+        query_string = "INSERT INTO subscription_packages (sub_name, number_of_tokens, duration_months, price) VALUES (:sub_name, :number_of_tokens, :duration_months, :price)"
+        params = {
+            "sub_name": context.user_data['sub_name'],
+            "number_of_tokens": context.user_data['tokens_per_month'],
+            "duration_months": context.user_data['num_months'],
+            "price": context.user_data['price']
+        }
+        await safe_set_db(query_string, params)
+        await update.message.reply_text("Subscription added successfully!")
+        context.user_data.clear()
+        return ConversationHandler.END
+    except ValueError:
+        await update.message.reply_text("Invalid price. Please enter a valid number/decimal for the price.")
+        return GET_PRICE
+
+async def cancel(update: Update, context: CallbackContext) -> int:
+    await update.message.reply_text("Subscription addition has been cancelled.")
+    context.user_data.clear()
+    return ConversationHandler.END
+###########################################################################################################################################################   
+
 # Add token packages
 PACKAGE_NAME, NUMBER_OF_TOKENS, PRICE, DESCRIPTION = range(4)
 
@@ -2117,6 +2038,76 @@ async def description_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await update.message.reply_text("Token package added successfully!")
 
     return ConversationHandler.END
+###########################################################################################################################################################
+# Delete subscription package
+SELECT_SUBSCRIPTION, DELETE_CONFIRMATION, DELETE_SUBSCRIPTION = range(3)
+
+async def list_subscriptions(update: Update, context: CallbackContext) -> int:
+    # Retrieve subscription packages
+    query = "SELECT id, sub_name, number_of_tokens, duration_months, price FROM subscription_packages"
+    subscription_packages = await safe_get_db(query, {})
+
+    if not subscription_packages:
+        await update.message.reply_text('No subscription packages available.')
+        return ConversationHandler.END
+
+    # Format the list of subscription packages
+    text = "Please choose the package you would like to delete.\n\nAvailable Subscription Packages:\n\n"
+    keyboard = []
+
+    for sub_id, sub_name, tokens, duration, price in subscription_packages:
+        text += f"<b>Subscription name:</b> {sub_name}\n<b>Tokens per month:</b> {tokens}\n<b>Duration:</b> {duration} months\n<b>Total price:</b> ${price}\n\n"
+        keyboard.append([InlineKeyboardButton(sub_name, callback_data=f"delete_sub|{sub_id}")])
+
+    # keyboard.append([InlineKeyboardButton("Cancel", callback_data="cancel_delete")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='HTML')
+
+    return DELETE_CONFIRMATION
+
+async def confirm_deletion(update: Update, context: CallbackContext) -> int:
+    logger.info("Entered confrim_deletion")
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    if data.startswith("delete_sub|"):
+        sub_id = data.split('|')[1]
+
+        # Confirm deletion
+        keyboard = [
+            [InlineKeyboardButton("Confirm", callback_data=f"confirm_delete|{sub_id}")],
+            [InlineKeyboardButton("Cancel", callback_data="cancel_delete")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text("Are you sure you want to delete this subscription package?", reply_markup=reply_markup)
+        return DELETE_SUBSCRIPTION
+
+async def delete_subscription(update: Update, context: CallbackContext) -> int:
+    logger.info("Entered delete_subscription")
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data.startswith("confirm_delete|"):
+        logger.info("Enter confirm deleted elif statement")
+        sub_id = data.split('|')[1]
+
+        # Delete the subscription package
+        query_string = "DELETE FROM subscription_packages WHERE id = :sub_id"
+        params = {"sub_id": sub_id}
+        await safe_set_db(query_string, params)
+
+        await query.edit_message_text("Subscription package deleted successfully!")
+
+    elif data == "cancel_delete":
+        logger.info("Enter cancel_delete elif statement")
+        await query.edit_message_text("Deletion process canceled.")
+
+    return ConversationHandler.END
+
 
 ###########################################################################################################################################################   
 #Delete token package
@@ -2835,8 +2826,41 @@ async def main() -> None:
     
     application.add_handler(job_repost_handler)
     
+# Add Subscription package convo handler
+    add_subscription_handler = ConversationHandler(
+        entry_points=[CommandHandler('addsubscription', start_add_subscription)],
 
-#Add token package convo handler
+        states={
+            GET_SUB_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_subscription_name)],
+            GET_NUM_MONTHS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_num_months)],
+            GET_TOKENS_PER_MONTH: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_tokens_per_month)],
+            GET_PRICE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_price)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
+    application.add_handler(add_subscription_handler)
+
+# Delete subscription package convo handler
+    delete_sub_handler = ConversationHandler(
+        entry_points=[CommandHandler('deletesubscription', list_subscriptions)],
+        states={
+            DELETE_CONFIRMATION: [
+                CallbackQueryHandler(confirm_deletion, pattern=r'^delete_sub|.*$'),
+            ],
+            DELETE_SUBSCRIPTION: [
+                CallbackQueryHandler(delete_subscription, pattern=r'^confirm_delete|.*$'),
+                CallbackQueryHandler(delete_subscription, pattern='cancel_delete')
+            ]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
+    application.add_handler(delete_sub_handler)
+
+# Add token package convo handler
     add_package_handler = ConversationHandler(
     entry_points=[CommandHandler('addpackage', add_package)],
     states={
@@ -2861,7 +2885,6 @@ async def main() -> None:
     fallbacks=[CommandHandler('cancel', cancel)]
 )
     application.add_handler(delete_package_handler)
-
 
 # Purchasing tokens convo handler
     purchase_tokens_handler = ConversationHandler(
