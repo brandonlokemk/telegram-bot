@@ -518,6 +518,7 @@ async def registration_text_handler(update: Update, context: ContextTypes.DEFAUL
 ###########################################################################################################################################################   
 # Edit Profile Command
 
+
 SELECT_PROFILE, SELECT_ATTRIBUTE, ENTER_NEW_VALUE = range(3)
 
 # Command handler to start editing profile
@@ -577,7 +578,7 @@ async def select_profile(update: Update, context: CallbackContext) -> int:
             keyboard = [
                 [InlineKeyboardButton("Name", callback_data='edit_attribute|agency|name')],
                 [InlineKeyboardButton("Agency Name", callback_data='edit_attribute|agency|agency_name')],
-                [InlineKeyboardButton("Company UEN", callback_data='edit_attribute|agency|company_uen')]
+                [InlineKeyboardButton("Company UEN", callback_data='edit_attribute|agency|agency_uen')]
             ]
         elif profile_type == 'applicant':
             keyboard = [
@@ -588,7 +589,7 @@ async def select_profile(update: Update, context: CallbackContext) -> int:
                 [InlineKeyboardButton("Race", callback_data='edit_attribute|applicant|race')],
                 [InlineKeyboardButton("Gender", callback_data='edit_attribute|applicant|gender')],
                 [InlineKeyboardButton("Highest Education", callback_data='edit_attribute|applicant|education')],
-                [InlineKeyboardButton("WhatsApp Number", callback_data='edit_attribute|applicant|whatsapp')]
+                [InlineKeyboardButton("WhatsApp Number", callback_data='edit_attribute|applicant|whatsapp_no')]
             ]
 
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -613,9 +614,54 @@ async def select_attribute(update: Update, context: CallbackContext) -> int:
 
         context.user_data['edit_attribute'] = attribute
 
-        await query.edit_message_text(f"Please enter the new value for {attribute.replace('_', ' ').title()}:")
-        
-        return ENTER_NEW_VALUE
+        if attribute == 'citizenship':
+            keyboard = [
+                [InlineKeyboardButton("Singaporean", callback_data='Singaporean')],
+                [InlineKeyboardButton("Permanent Resident(PR)", callback_data='Permanent Resident(PR)')],
+                [InlineKeyboardButton("Foreigner", callback_data='Foreigner')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text('Select Citizenship:', reply_markup=reply_markup)
+            return ENTER_NEW_VALUE
+
+        elif attribute == 'race':
+            keyboard = [
+                [InlineKeyboardButton("Chinese", callback_data='Chinese')],
+                [InlineKeyboardButton("Malay", callback_data='Malay')],
+                [InlineKeyboardButton("Indian", callback_data='Indian')],
+                [InlineKeyboardButton("Eurasian", callback_data='Eurasian')],
+                [InlineKeyboardButton("Others", callback_data='Others')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text('Select Race:', reply_markup=reply_markup)
+            return ENTER_NEW_VALUE
+
+        elif attribute == 'gender':
+            keyboard = [
+                [InlineKeyboardButton("Male", callback_data='Male')],
+                [InlineKeyboardButton("Female", callback_data='Female')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text('Select Gender:', reply_markup=reply_markup)
+            return ENTER_NEW_VALUE
+
+        elif attribute == 'education':
+            keyboard = [
+                [InlineKeyboardButton("O-level Graduate", callback_data='O-level Graduate')],
+                [InlineKeyboardButton("ITE Graduate", callback_data='ITE Graduate')],
+                [InlineKeyboardButton("A-level Graduate", callback_data='A-level Graduate')],
+                [InlineKeyboardButton("Diploma Graduate", callback_data='Diploma Graduate')],
+                [InlineKeyboardButton("Degree Graduate", callback_data='Degree Graduate')],
+                [InlineKeyboardButton("Undergraduate", callback_data='Undergraduate')],
+                [InlineKeyboardButton("Studying in Poly/JC", callback_data='Studying in Poly/JC')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text('Select Highest Education:', reply_markup=reply_markup)
+            return ENTER_NEW_VALUE
+
+        else:
+            await query.edit_message_text(f"Please enter the new value for {attribute.replace('_', ' ').title()}:")
+            return ENTER_NEW_VALUE
 
     except IndexError:
         logger.info(f"Error: Malformed callback_data - {query.data}")
@@ -624,7 +670,8 @@ async def select_attribute(update: Update, context: CallbackContext) -> int:
 
 # Callback function to handle new value input
 async def enter_new_value(update: Update, context: CallbackContext) -> int:
-    new_value = update.message.text
+    query = update.callback_query
+    new_value = query.data if query else update.message.text
     profile_type = context.user_data['edit_profile_type']
     profile_id = context.user_data['edit_profile_id']
     attribute = context.user_data['edit_attribute']
@@ -634,8 +681,9 @@ async def enter_new_value(update: Update, context: CallbackContext) -> int:
             async with AsyncSessionLocal() as conn:
                 await conn.execute(
                     sqlalchemy.text(
-                f"UPDATE agencies SET {attribute} = '{new_value}' WHERE id = '{profile_id}'"
-                )
+                        f"UPDATE agencies SET {attribute} = :new_value WHERE id = :profile_id"
+                    ),
+                    {'new_value': new_value, 'profile_id': profile_id}
                 )
                 await conn.commit()
 
@@ -643,18 +691,164 @@ async def enter_new_value(update: Update, context: CallbackContext) -> int:
             async with AsyncSessionLocal() as conn:
                 await conn.execute(
                     sqlalchemy.text(
-                f"UPDATE applicants SET {attribute} = '{new_value}' WHERE id = '{profile_id}'"
-                )
+                        f"UPDATE applicants SET {attribute} = :new_value WHERE id = :profile_id"
+                    ),
+                    {'new_value': new_value, 'profile_id': profile_id}
                 )
                 await conn.commit()
-        await update.message.reply_text('Profile updated successfully!')
+        if update.message:
+            await update.message.reply_text('Profile updated successfully!')
+        if update.callback_query:
+            await update.callback_query.message.reply_text('Profile updated successfully!')
         context.user_data.clear()  # Clear user data after successful update
 
     except Exception as e:
         logger.info(f"Unexpected error: {str(e)}")
-        await update.message.reply_text('An error occurred while updating the profile.')
+        if update.message:
+            await update.message.reply_text('An error occurred while updating the profile.')
+        if update.callback_query:
+            await update.callback_query.message.reply_text('An error occurred while updating the profile.')
 
     return ConversationHandler.END
+
+
+# SELECT_PROFILE, SELECT_ATTRIBUTE, ENTER_NEW_VALUE = range(3)
+
+# # Command handler to start editing profile
+# async def edit_profile(update: Update, context: CallbackContext) -> int:
+#     user_handle = update.effective_user.username
+
+#     # Retrieve agency and applicant profiles for the user_handle
+#     async with AsyncSessionLocal() as conn:
+#         results = await conn.execute(
+#             sqlalchemy.text(
+#                 f"SELECT id, agency_name FROM agencies WHERE user_handle = '{user_handle}'"
+#             )
+#         )
+#         agency_profiles = results.fetchall()
+
+#     async with AsyncSessionLocal() as conn:
+#         results = await conn.execute(
+#             sqlalchemy.text(
+#                 f"SELECT id, name FROM applicants WHERE user_handle = '{user_handle}'"
+#             )
+#         )
+#         applicant_profiles = results.fetchall()
+
+#     # Format profiles as inline buttons
+#     keyboard = []
+#     for id, agency_name in agency_profiles:
+#         keyboard.append([InlineKeyboardButton(f"Agency - {agency_name}", callback_data=f"edit_profile|agency|{id}")])
+
+#     for id, applicant_name in applicant_profiles:
+#         keyboard.append([InlineKeyboardButton(f"Applicant - {applicant_name}", callback_data=f"edit_profile|applicant|{id}")])
+
+#     # Check if both profiles are empty
+#     if not agency_profiles and not applicant_profiles:
+#         await update.message.reply_text('You have no profiles to edit.')
+#         return ConversationHandler.END
+
+#     reply_markup = InlineKeyboardMarkup(keyboard)
+#     await update.message.reply_text('Select the profile you want to edit:', reply_markup=reply_markup)
+
+#     return SELECT_PROFILE
+
+# # Callback function to handle profile selection
+# async def select_profile(update: Update, context: CallbackContext) -> int:
+#     query = update.callback_query
+#     await query.answer()
+
+#     try:
+#         # Extracting profile type and id from callback_data
+#         parts = query.data.split('|')
+#         profile_type = parts[1]
+#         profile_id = parts[2]
+
+#         context.user_data['edit_profile_type'] = profile_type
+#         context.user_data['edit_profile_id'] = profile_id
+
+#         if profile_type == 'agency':
+#             keyboard = [
+#                 [InlineKeyboardButton("Name", callback_data='edit_attribute|agency|name')],
+#                 [InlineKeyboardButton("Agency Name", callback_data='edit_attribute|agency|agency_name')],
+#                 [InlineKeyboardButton("Company UEN", callback_data='edit_attribute|agency|company_uen')]
+#             ]
+#         elif profile_type == 'applicant':
+#             keyboard = [
+#                 [InlineKeyboardButton("Name", callback_data='edit_attribute|applicant|name')],
+#                 [InlineKeyboardButton("Date of Birth", callback_data='edit_attribute|applicant|dob')],
+#                 [InlineKeyboardButton("Past Experiences", callback_data='edit_attribute|applicant|past_exp')],
+#                 [InlineKeyboardButton("Citizenship", callback_data='edit_attribute|applicant|citizenship')],
+#                 [InlineKeyboardButton("Race", callback_data='edit_attribute|applicant|race')],
+#                 [InlineKeyboardButton("Gender", callback_data='edit_attribute|applicant|gender')],
+#                 [InlineKeyboardButton("Highest Education", callback_data='edit_attribute|applicant|education')],
+#                 [InlineKeyboardButton("WhatsApp Number", callback_data='edit_attribute|applicant|whatsapp')]
+#             ]
+
+#         reply_markup = InlineKeyboardMarkup(keyboard)
+#         await query.edit_message_text('Select the attribute you want to edit:', reply_markup=reply_markup)
+
+#         return SELECT_ATTRIBUTE
+
+#     except IndexError:
+#         logger.info(f"Error: Malformed callback_data - {query.data}")
+
+#     return ConversationHandler.END
+
+# # Callback function to handle attribute selection
+# async def select_attribute(update: Update, context: CallbackContext) -> int:
+#     query = update.callback_query
+#     await query.answer()
+
+#     try:
+#         parts = query.data.split('|')
+#         profile_type = parts[1]
+#         attribute = parts[2]
+
+#         context.user_data['edit_attribute'] = attribute
+
+#         await query.edit_message_text(f"Please enter the new value for {attribute.replace('_', ' ').title()}:")
+        
+#         return ENTER_NEW_VALUE
+
+#     except IndexError:
+#         logger.info(f"Error: Malformed callback_data - {query.data}")
+
+#     return ConversationHandler.END
+
+# # Callback function to handle new value input
+# async def enter_new_value(update: Update, context: CallbackContext) -> int:
+#     new_value = update.message.text
+#     profile_type = context.user_data['edit_profile_type']
+#     profile_id = context.user_data['edit_profile_id']
+#     attribute = context.user_data['edit_attribute']
+
+#     try:
+#         if profile_type == 'agency':
+#             async with AsyncSessionLocal() as conn:
+#                 await conn.execute(
+#                     sqlalchemy.text(
+#                 f"UPDATE agencies SET {attribute} = '{new_value}' WHERE id = '{profile_id}'"
+#                 )
+#                 )
+#                 await conn.commit()
+
+#         elif profile_type == 'applicant':
+#             async with AsyncSessionLocal() as conn:
+#                 await conn.execute(
+#                     sqlalchemy.text(
+#                 f"UPDATE applicants SET {attribute} = '{new_value}' WHERE id = '{profile_id}'"
+#                 )
+#                 )
+#                 await conn.commit()
+#         await update.message.reply_text('Profile updated successfully!')
+#         context.user_data.clear()  # Clear user data after successful update
+
+#     except Exception as e:
+#         logger.info(f"Unexpected error: {str(e)}")
+#         await update.message.reply_text('An error occurred while updating the profile.')
+
+#     return ConversationHandler.END
 
 ###########################################################################################################################################################   
 # #Job Posting
@@ -2484,7 +2678,7 @@ async def global_error_handler(update, context):
     traceback.print_exc()
 
     # Optionally, notify the developer or admin
-    await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"An error occurred: {context.error}")
+    await context.bot.send_message(chat_id=CHANNEL_ID, text=f"An error occurred: {context.error}")
 
 # Bot classes
 
@@ -2577,17 +2771,33 @@ async def main() -> None:
 
 
 
-# Edit profile convo handler
-    edit_profile_handler = ConversationHandler(
+# # Edit profile convo handler
+#     edit_profile_handler = ConversationHandler(
+#         entry_points=[CommandHandler('editprofile', edit_profile)],
+#         states={
+#             SELECT_PROFILE: [CallbackQueryHandler(select_profile)],
+#             SELECT_ATTRIBUTE: [CallbackQueryHandler(select_attribute)],
+#             ENTER_NEW_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_new_value)],
+#         },
+#         fallbacks=[CommandHandler('cancel', cancel)]
+#     )
+#     application.add_handler(edit_profile_handler)
+
+    edit_profile_convo_handler = ConversationHandler(
         entry_points=[CommandHandler('editprofile', edit_profile)],
         states={
-            SELECT_PROFILE: [CallbackQueryHandler(select_profile)],
-            SELECT_ATTRIBUTE: [CallbackQueryHandler(select_attribute)],
-            ENTER_NEW_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_new_value)],
+            SELECT_PROFILE: [
+                CallbackQueryHandler(select_profile, pattern='^edit_profile\\|')],
+            SELECT_ATTRIBUTE: [
+                CallbackQueryHandler(select_attribute, pattern='^edit_attribute\\|')],
+            ENTER_NEW_VALUE: [
+                CallbackQueryHandler(enter_new_value, pattern='^(Singaporean|Permanent Resident\\(PR\\)|Foreigner|Chinese|Malay|Indian|Eurasian|Others|Male|Female|O-level Graduate|ITE Graduate|A-level Graduate|Diploma Graduate|Degree Graduate|Undergraduate|Studying in Poly/JC)$'),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, enter_new_value)]
         },
         fallbacks=[CommandHandler('cancel', cancel)]
     )
-    application.add_handler(edit_profile_handler)
+    application.add_handler(edit_profile_convo_handler)
+
 
 # Job post convo handler
     job_post_handler = ConversationHandler(
