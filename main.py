@@ -702,7 +702,10 @@ async def jobrepost_button(update: Update, context: CallbackContext) -> int:
     query_data = query.data
     await query.answer()
     context.user_data['repost_job_id'] = query_data.split('|')[1]
+    repost_job_id = context.user_data['repost_job_id']
+    await query.edit_message_text(f"You have chosen Job {repost_job_id}")
     tokens_to_deduct = JOB_REPOST_PRICE
+
     # Check if sufficient tokens in balance
     chat_id = context.user_data['chat_id']
     have_enough = await check_sufficient_tokens(update, context, chat_id, tokens_to_deduct)
@@ -715,10 +718,16 @@ async def jobrepost_button(update: Update, context: CallbackContext) -> int:
         keyboard.append(cancel_button)
         reply_markup = InlineKeyboardMarkup(keyboard)
         # Send confirmation message
-        await update.callback_query.message.reply_text(text= f"This will cost {tokens_to_deduct} tokens, do you want to proceed with reposting?", reply_markup = reply_markup)
+        if update.callback_query:
+            await update.callback_query.message.reply_text(text= f"This will cost {tokens_to_deduct} tokens, do you want to proceed with reposting?", reply_markup = reply_markup)
+        if update.message:
+            await update.message.reply_text(text= f"This will cost {tokens_to_deduct} tokens, do you want to proceed with reposting?", reply_markup = reply_markup)
         return CONFIRMATION_JOB_REPOST
     else:
-        await update.callback_query.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchasetokens command!")
+        if update.callback_query:
+            await update.callback_query.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchasetokens command!")
+        if update.message:
+            await update.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchasetokens command!")
         return ConversationHandler.END
 
 async def confirm_job_repost(update, context):
@@ -890,7 +899,7 @@ async def confirm_job_post(update, context):
             params = {"new_balance": new_balance, "chat_id": chat_id}
             if (await safe_set_db(query_string, params)):
                 job_id = await save_jobpost(context.user_data)
-                message = await draft_job_post_message(job_id)
+                message = await draft_job_post_message(job_id, part_time=part_time)
                 await forward_to_admin_for_acknowledgement(update, context, message=message, job_post_id = job_id)
                 await query.answer()
                 logger.info(f"{tokens_to_deduct} tokens have been deducted from {chat_id}'s account")
@@ -982,7 +991,7 @@ async def spend_tokens(update: Update, context: CallbackContext, chat_id, tokens
 # Callback function to handle job posting details input
 async def jobpost_text_handler(update: Update, context: CallbackContext) -> int:
     text = update.message.text
-
+    context.user_data['chat_id'] = update.effective_chat.id
     if 'jobpost_step' in context.user_data:
         step = context.user_data['jobpost_step']
 
@@ -1055,10 +1064,10 @@ async def jobpost_additional_req(update: Update, context: CallbackContext) -> in
             keyboard.append(cancel_button)
             reply_markup = InlineKeyboardMarkup(keyboard)
             # Send confirmation message
-            await update.message.reply_text(text= f"This will cost {tokens_to_deduct} tokens, do you want to proceed with posting?", reply_markup = reply_markup)
+            await update.callback_query.message.reply_text(text= f"This will cost {tokens_to_deduct} tokens, do you want to proceed with posting?", reply_markup = reply_markup)
             return CONFIRMATION_JOB_POST
         else:
-            await update.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchasetokens command!")
+            await update.callback_query.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchasetokens command!")
             return ConversationHandler.END
 
     elif query.data == "yes":
@@ -1090,10 +1099,16 @@ async def handle_other_req_text(update: Update, context: CallbackContext) -> int
         keyboard.append(cancel_button)
         reply_markup = InlineKeyboardMarkup(keyboard)
         # Send confirmation message
-        await update.message.reply_text(text= f"This will cost {tokens_to_deduct} tokens, do you want to proceed with posting?", reply_markup = reply_markup)
+        if update.callback_query:
+            await update.callback_query.message.reply_text(text= f"This will cost {tokens_to_deduct} tokens, do you want to proceed with posting?", reply_markup = reply_markup)
+        if update.message:
+            await update.message.reply_text(text= f"This will cost {tokens_to_deduct} tokens, do you want to proceed with posting?", reply_markup = reply_markup)
         return CONFIRMATION_JOB_POST
     else:
-        await update.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchasetokens command!")
+        if update.callback_query:
+            await update.callback_query.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchasetokens command!")
+        if update.message:
+            await update.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchasetokens command!")
         return ConversationHandler.END
 
     return ENTER_JOB_DETAILS
@@ -1131,7 +1146,7 @@ async def draft_job_post_message(job_id, repost=False, part_time=False) -> str:
         tag = full_time_tag
 
     message = f'''
-<b><u>Job Post [ID: {job_id}]</u></b> {tag}\n\n
+<b><u>Job Post [ID: {job_id}]</u></b>\n{tag}\n
 <b>👨🏻‍💻 Agency</b>:\n{agency_name}\n\n
 <b>🏢Industry</b>:\n{company_industry}\n\n
 <b>👨‍💼Job Title</b>:\n{job_title}\n\n
@@ -1253,9 +1268,14 @@ async def purchase_shortlists(update: Update, context: CallbackContext) -> int:
     message = f"You currently have:\n{tokens} tokens\n{shortlists} shortlists"
 
     if tokens < 5:
-        await update.message.reply_text(
-            message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchasetokens.", parse_mode='HTML'
-        )
+        if update.message:
+            await update.message.reply_text(
+                message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchasetokens.", parse_mode='HTML'
+            )
+        if update.callback_query.message:
+            await update.callback_query.message.reply_text(
+                message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchasetokens.", parse_mode='HTML'
+            )
         return ConversationHandler.END
 
     # Ask user how many shortlists they want to buy
@@ -2257,9 +2277,6 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
             await context.bot.send_message(chat_id=chat_id, text="Your payment has been rejected by an admin. Please PM admin for more details")
 
     elif query_data.startswith('jp_'): 
-
-
-
         logger.info("JP query found")
         # Getting admin response as well as job ID
         status, job_post_id = query_data.split('_')[1:]
@@ -2275,6 +2292,16 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
         results = await safe_get_db(query_string, params)
         repost = results[0][0]
 
+        # Check if part time
+        query_string = '''
+        SELECT EXISTS (
+        SELECT 1
+        FROM job_posts
+        WHERE id = :job_post_id AND job_type = 'part')
+        '''
+        params = {"job_post_id": job_post_id}
+        results = await safe_get_db(query_string, params)
+        part_time = results[0][0]
         # Get agency id based on job id
         query_string = f"SELECT agency_id FROM job_posts WHERE id = '{job_post_id}'"
         results = await get_db(query_string)
@@ -2292,7 +2319,7 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
                 await set_db(query_string)
                 logger.info(f"Approved {job_post_id} in database!")
             # Post to channel
-            message = await draft_job_post_message(job_post_id, repost=repost)
+            message = await draft_job_post_message(job_post_id, repost=repost, part_time=part_time)
             await post_job_in_channel(update, context, message=message, job_post_id=job_post_id)
             # Add 3 shortlist to user chat_id
             num_shortlists = 3
@@ -2320,11 +2347,20 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
             await context.bot.send_message(chat_id=chat_id, text=f"Your posting has been approved by the admin!.\n\nIt has been posted in the channel with Job ID: {job_post_id}")
         
         elif status == 'reject':
+
             if not repost: # if not reposting
+                if part_time:
+                    tokens_to_deduct = PART_JOB_POST_PRICE
+                    
+                else:
+                    tokens_to_deduct = JOB_POST_PRICE
                 # Update job post status to 'Rejected'
                 query_string = f"UPDATE job_posts SET status = 'Rejected' WHERE id = '{job_post_id}'"
                 await set_db(query_string)
                 logger.info(f"Rejected {job_post_id} in database!")
+            if repost:
+                tokens_to_deduct = JOB_REPOST_PRICE
+
             # Give user back credits
             query_string = "SELECT EXISTS (SELECT 1 FROM token_balance WHERE chat_id = :chat_id)"
             params = {"chat_id": chat_id}
@@ -2337,7 +2373,7 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
                 # Give back credits
                 query_string = "UPDATE token_balance SET tokens = tokens + :price_of_job_post WHERE chat_id = :chat_id"
                 params = {
-                    "price_of_job_post": JOB_POST_PRICE,
+                    "price_of_job_post": tokens_to_deduct,
                     "chat_id": chat_id
                 }
                 await safe_set_db(query_string, params)
