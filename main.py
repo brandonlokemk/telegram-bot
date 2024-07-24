@@ -2784,7 +2784,7 @@ async def main() -> None:
 #     application.add_handler(edit_profile_handler)
 
     edit_profile_convo_handler = ConversationHandler(
-        entry_points=[CommandHandler('edit_profile', edit_profile)],
+        entry_points=[CommandHandler('editprofile', edit_profile)],
         states={
             SELECT_PROFILE: [
                 CallbackQueryHandler(select_profile, pattern='^edit_profile\\|')],
