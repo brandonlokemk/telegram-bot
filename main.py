@@ -22,6 +22,7 @@ import schedule
 import traceback
 import time
 import pymysql
+from dateutil.relativedelta import relativedelta
 from datetime import datetime, timedelta
 from typing import Callable
 from google.cloud.sql.connector import Connector, IPTypes
@@ -75,6 +76,8 @@ logger = logging.getLogger(__name__)
 # Define configuration constants
 URL = os.environ['CLOUD_URL']
 ADMIN_CHAT_ID = 494057457 #TODO change
+# ADMIN_CHAT_ID = 1320357219
+# ADMIN_CHAT_ID
 CHANNEL_ID = -1002192841091 #TODO change
 PORT = 8080
 BOT_TOKEN = os.environ['BOT_TOKEN'] # nosec B105
@@ -252,11 +255,11 @@ class CustomContext(CallbackContext[ExtBot, dict, dict, dict]):
 async def start(update: Update, context: CustomContext) -> None:
     """Display a message with instructions on how to use this bot."""
     text = (
-        "Welcome to Telegram Jobs Bot! :^).\n"
+        "Welcome to Telegram Jobs Bot!.\n"
         "If you need help, please use the /help command!"
     )
-    agency_profs = await async_test_db() #TODO remove later
-    await update.message.reply_html(text=str(agency_profs)) #TODO change text
+    # agency_profs = await async_test_db() #TODO remove later
+    await update.message.reply_html(text=text) #TODO change text
 
 # Help command
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -711,144 +714,6 @@ async def enter_new_value(update: Update, context: CallbackContext) -> int:
 
     return ConversationHandler.END
 
-
-# SELECT_PROFILE, SELECT_ATTRIBUTE, ENTER_NEW_VALUE = range(3)
-
-# # Command handler to start editing profile
-# async def edit_profile(update: Update, context: CallbackContext) -> int:
-#     user_handle = update.effective_user.username
-
-#     # Retrieve agency and applicant profiles for the user_handle
-#     async with AsyncSessionLocal() as conn:
-#         results = await conn.execute(
-#             sqlalchemy.text(
-#                 f"SELECT id, agency_name FROM agencies WHERE user_handle = '{user_handle}'"
-#             )
-#         )
-#         agency_profiles = results.fetchall()
-
-#     async with AsyncSessionLocal() as conn:
-#         results = await conn.execute(
-#             sqlalchemy.text(
-#                 f"SELECT id, name FROM applicants WHERE user_handle = '{user_handle}'"
-#             )
-#         )
-#         applicant_profiles = results.fetchall()
-
-#     # Format profiles as inline buttons
-#     keyboard = []
-#     for id, agency_name in agency_profiles:
-#         keyboard.append([InlineKeyboardButton(f"Agency - {agency_name}", callback_data=f"edit_profile|agency|{id}")])
-
-#     for id, applicant_name in applicant_profiles:
-#         keyboard.append([InlineKeyboardButton(f"Applicant - {applicant_name}", callback_data=f"edit_profile|applicant|{id}")])
-
-#     # Check if both profiles are empty
-#     if not agency_profiles and not applicant_profiles:
-#         await update.message.reply_text('You have no profiles to edit.')
-#         return ConversationHandler.END
-
-#     reply_markup = InlineKeyboardMarkup(keyboard)
-#     await update.message.reply_text('Select the profile you want to edit:', reply_markup=reply_markup)
-
-#     return SELECT_PROFILE
-
-# # Callback function to handle profile selection
-# async def select_profile(update: Update, context: CallbackContext) -> int:
-#     query = update.callback_query
-#     await query.answer()
-
-#     try:
-#         # Extracting profile type and id from callback_data
-#         parts = query.data.split('|')
-#         profile_type = parts[1]
-#         profile_id = parts[2]
-
-#         context.user_data['edit_profile_type'] = profile_type
-#         context.user_data['edit_profile_id'] = profile_id
-
-#         if profile_type == 'agency':
-#             keyboard = [
-#                 [InlineKeyboardButton("Name", callback_data='edit_attribute|agency|name')],
-#                 [InlineKeyboardButton("Agency Name", callback_data='edit_attribute|agency|agency_name')],
-#                 [InlineKeyboardButton("Company UEN", callback_data='edit_attribute|agency|company_uen')]
-#             ]
-#         elif profile_type == 'applicant':
-#             keyboard = [
-#                 [InlineKeyboardButton("Name", callback_data='edit_attribute|applicant|name')],
-#                 [InlineKeyboardButton("Date of Birth", callback_data='edit_attribute|applicant|dob')],
-#                 [InlineKeyboardButton("Past Experiences", callback_data='edit_attribute|applicant|past_exp')],
-#                 [InlineKeyboardButton("Citizenship", callback_data='edit_attribute|applicant|citizenship')],
-#                 [InlineKeyboardButton("Race", callback_data='edit_attribute|applicant|race')],
-#                 [InlineKeyboardButton("Gender", callback_data='edit_attribute|applicant|gender')],
-#                 [InlineKeyboardButton("Highest Education", callback_data='edit_attribute|applicant|education')],
-#                 [InlineKeyboardButton("WhatsApp Number", callback_data='edit_attribute|applicant|whatsapp')]
-#             ]
-
-#         reply_markup = InlineKeyboardMarkup(keyboard)
-#         await query.edit_message_text('Select the attribute you want to edit:', reply_markup=reply_markup)
-
-#         return SELECT_ATTRIBUTE
-
-#     except IndexError:
-#         logger.info(f"Error: Malformed callback_data - {query.data}")
-
-#     return ConversationHandler.END
-
-# # Callback function to handle attribute selection
-# async def select_attribute(update: Update, context: CallbackContext) -> int:
-#     query = update.callback_query
-#     await query.answer()
-
-#     try:
-#         parts = query.data.split('|')
-#         profile_type = parts[1]
-#         attribute = parts[2]
-
-#         context.user_data['edit_attribute'] = attribute
-
-#         await query.edit_message_text(f"Please enter the new value for {attribute.replace('_', ' ').title()}:")
-        
-#         return ENTER_NEW_VALUE
-
-#     except IndexError:
-#         logger.info(f"Error: Malformed callback_data - {query.data}")
-
-#     return ConversationHandler.END
-
-# # Callback function to handle new value input
-# async def enter_new_value(update: Update, context: CallbackContext) -> int:
-#     new_value = update.message.text
-#     profile_type = context.user_data['edit_profile_type']
-#     profile_id = context.user_data['edit_profile_id']
-#     attribute = context.user_data['edit_attribute']
-
-#     try:
-#         if profile_type == 'agency':
-#             async with AsyncSessionLocal() as conn:
-#                 await conn.execute(
-#                     sqlalchemy.text(
-#                 f"UPDATE agencies SET {attribute} = '{new_value}' WHERE id = '{profile_id}'"
-#                 )
-#                 )
-#                 await conn.commit()
-
-#         elif profile_type == 'applicant':
-#             async with AsyncSessionLocal() as conn:
-#                 await conn.execute(
-#                     sqlalchemy.text(
-#                 f"UPDATE applicants SET {attribute} = '{new_value}' WHERE id = '{profile_id}'"
-#                 )
-#                 )
-#                 await conn.commit()
-#         await update.message.reply_text('Profile updated successfully!')
-#         context.user_data.clear()  # Clear user data after successful update
-
-#     except Exception as e:
-#         logger.info(f"Unexpected error: {str(e)}")
-#         await update.message.reply_text('An error occurred while updating the profile.')
-
-#     return ConversationHandler.END
 
 ###########################################################################################################################################################   
 # #Job Posting
@@ -1391,7 +1256,7 @@ async def apply_button_handler(update: Update, context:ContextTypes.DEFAULT_TYPE
         keyboard.append([InlineKeyboardButton(f"Applicant - {applicant_name}", callback_data=f"ja_{job_post_id}_{applicant_id}")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await context.bot.send_message(chat_id=chat_id, text=f"You are appplying for Job ID {job_post_id}\n\nSelect the applicant profile you want to apply with:", reply_markup=reply_markup)
+    await context.bot.send_message(chat_id=chat_id, text=f"You are applying for Job ID {job_post_id}\n\nSelect the applicant profile you want to apply with:", reply_markup=reply_markup)
 
 async def select_applicant_apply(update: Update, context:ContextTypes.DEFAULT_TYPE):
     '''
@@ -1813,7 +1678,6 @@ async def shortlist_applicant(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await callback_query.message.edit_text(
             "All applicants have been shortlisted.\n\n"
-            "No more shortlists available. Please purchase more at /purchase_shortlists."
         )
         return ConversationHandler.END
 
@@ -2141,12 +2005,74 @@ async def delete_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.info(f"Unexpected error: {str(e)}")
 
 ###########################################################################################################################################################   
+# Add subscription packages
+
+GET_SUB_NAME, GET_NUM_MONTHS, GET_TOKENS_PER_MONTH, GET_PRICE = range(4)
+
+async def start_add_subscription(update: Update, context: CallbackContext) -> int:
+    if (update.effective_chat.id != ADMIN_CHAT_ID):
+        return ConversationHandler.END
+    await update.message.reply_text("Please enter the subscription name:")
+    return GET_SUB_NAME
+
+async def get_subscription_name(update: Update, context: CallbackContext) -> int:
+    context.user_data['sub_name'] = update.message.text
+    await update.message.reply_text("Please enter the number of months for the subscription:")
+    return GET_NUM_MONTHS
+
+async def get_num_months(update: Update, context: CallbackContext) -> int:
+    try:
+        num_months = int(update.message.text)
+        context.user_data['num_months'] = num_months
+        await update.message.reply_text("Please enter the number of tokens per month:")
+        return GET_TOKENS_PER_MONTH
+    except ValueError:
+        await update.message.reply_text("Invalid input. Please enter a valid number of months.")
+        return GET_NUM_MONTHS
+
+async def get_tokens_per_month(update: Update, context: CallbackContext) -> int:
+    try:
+        tokens_per_month = int(update.message.text)
+        context.user_data['tokens_per_month'] = tokens_per_month
+        await update.message.reply_text("Please enter the total price of the subscription package:")
+        return GET_PRICE
+    except ValueError:
+        await update.message.reply_text("Invalid input. Please enter a valid number of tokens per month.")
+        return GET_TOKENS_PER_MONTH
+
+async def get_price(update: Update, context: CallbackContext) -> int:
+    try:
+        price = float(update.message.text)
+        context.user_data['price'] = price
+        
+        query_string = "INSERT INTO subscription_packages (sub_name, number_of_tokens, duration_months, price) VALUES (:sub_name, :number_of_tokens, :duration_months, :price)"
+        params = {
+            "sub_name": context.user_data['sub_name'],
+            "number_of_tokens": context.user_data['tokens_per_month'],
+            "duration_months": context.user_data['num_months'],
+            "price": context.user_data['price']
+        }
+        await safe_set_db(query_string, params)
+        await update.message.reply_text("Subscription added successfully!")
+        context.user_data.clear()
+        return ConversationHandler.END
+    except ValueError:
+        await update.message.reply_text("Invalid price. Please enter a valid number/decimal for the price.")
+        return GET_PRICE
+
+async def cancel(update: Update, context: CallbackContext) -> int:
+    await update.message.reply_text("Subscription addition has been cancelled.")
+    context.user_data.clear()
+    return ConversationHandler.END
+###########################################################################################################################################################   
+
 # Add token packages
-PACKAGE_NAME, NUMBER_OF_TOKENS, PRICE, DESCRIPTION = range(4)
+PACKAGE_NAME, NUMBER_OF_TOKENS, PRICE, DESCRIPTION, VALIDITY = range(5)
 
 # Function to handle /addpackage command
-#TODO add validity field for admin to fill
 async def add_package(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if (update.effective_chat.id != ADMIN_CHAT_ID):
+        return ConversationHandler.END    
     await update.message.reply_text("Please enter the package name:")
     return PACKAGE_NAME
 
@@ -2179,29 +2105,108 @@ async def purchase_amount_input(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("Invalid input. Please enter a decimal number for the purchase amount:")
         return PRICE
 
-# Function to handle the description input and store the package in the database
+# Function to handle the description input
 async def description_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     description = update.message.text
     context.user_data['description'] = description
-    print("made it to updating db")
-    async with AsyncSessionLocal() as conn:
-        await conn.execute(
-            sqlalchemy.text(
-                "INSERT INTO token_packages (package_name, number_of_tokens, price, description) VALUES (:package_name, :number_of_tokens, :price, :description)"
-            ),
-            {
-                'package_name': context.user_data['package_name'],
-                'number_of_tokens': context.user_data['number_of_tokens'],
-                'price': context.user_data['price'],
-                'description': context.user_data['description']
-            }
-        )
-        await conn.commit()
+    await update.message.reply_text("Please enter the validity period for this package (in days):")
+    return VALIDITY
 
-    print("finished updating db")
-    await update.message.reply_text("Token package added successfully!")
+# Function to handle the validity input and store the package in the database
+async def validity_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        validity = int(update.message.text)
+        context.user_data['validity'] = validity
+        query_string = """
+            INSERT INTO token_packages (package_name, number_of_tokens, price, description, validity)
+            VALUES (:package_name, :number_of_tokens, :price, :description, :validity)
+        """
+        params = {
+            'package_name': context.user_data['package_name'],
+            'number_of_tokens': context.user_data['number_of_tokens'],
+            'price': context.user_data['price'],
+            'description': context.user_data['description'],
+            'validity': context.user_data['validity']
+        }
+        await safe_set_db(query_string, params)
+
+        await update.message.reply_text("Token package added successfully!")
+        return ConversationHandler.END
+    except ValueError:
+        await update.message.reply_text("Invalid input. Please enter an integer for the validity period:")
+        return VALIDITY
+###########################################################################################################################################################
+# Delete subscription package
+SELECT_SUBSCRIPTION, DELETE_CONFIRMATION, DELETE_SUBSCRIPTION = range(3)
+
+async def list_subscriptions(update: Update, context: CallbackContext) -> int:
+    # Retrieve subscription packages
+    if (update.effective_chat.id != ADMIN_CHAT_ID):
+        return ConversationHandler.END
+    query = "SELECT id, sub_name, number_of_tokens, duration_months, price FROM subscription_packages"
+    subscription_packages = await safe_get_db(query, {})
+
+    if not subscription_packages:
+        await update.message.reply_text('No subscription packages available.')
+        return ConversationHandler.END
+
+    # Format the list of subscription packages
+    text = "Please choose the package you would like to delete.\n\nAvailable Subscription Packages:\n\n"
+    keyboard = []
+
+    for sub_id, sub_name, tokens, duration, price in subscription_packages:
+        text += f"<b>Subscription name:</b> {sub_name}\n<b>Tokens per month:</b> {tokens}\n<b>Duration:</b> {duration} months\n<b>Total price:</b> ${price}\n\n"
+        keyboard.append([InlineKeyboardButton(sub_name, callback_data=f"delete_sub|{sub_id}")])
+
+    # keyboard.append([InlineKeyboardButton("Cancel", callback_data="cancel_delete")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='HTML')
+
+    return DELETE_CONFIRMATION
+
+async def confirm_deletion(update: Update, context: CallbackContext) -> int:
+    logger.info("Entered confrim_deletion")
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    if data.startswith("delete_sub|"):
+        sub_id = data.split('|')[1]
+
+        # Confirm deletion
+        keyboard = [
+            [InlineKeyboardButton("Confirm", callback_data=f"confirm_delete|{sub_id}")],
+            [InlineKeyboardButton("Cancel", callback_data="cancel_delete")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text("Are you sure you want to delete this subscription package?", reply_markup=reply_markup)
+        return DELETE_SUBSCRIPTION
+
+async def delete_subscription(update: Update, context: CallbackContext) -> int:
+    logger.info("Entered delete_subscription")
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data.startswith("confirm_delete|"):
+        logger.info("Enter confirm deleted elif statement")
+        sub_id = data.split('|')[1]
+
+        # Delete the subscription package
+        query_string = "DELETE FROM subscription_packages WHERE id = :sub_id"
+        params = {"sub_id": sub_id}
+        await safe_set_db(query_string, params)
+
+        await query.edit_message_text("Subscription package deleted successfully!")
+
+    elif data == "cancel_delete":
+        logger.info("Enter cancel_delete elif statement")
+        await query.edit_message_text("Deletion process canceled.")
 
     return ConversationHandler.END
+
 
 ###########################################################################################################################################################   
 #Delete token package
@@ -2211,6 +2216,8 @@ SELECT_PACKAGE, CONFIRM_DELETE = range(2)
 # Function to handle /deletepackage command
 #TODO remove constraints in DB
 async def delete_package(update: Update, context: CallbackContext) -> int:
+    if (update.effective_chat.id != ADMIN_CHAT_ID):
+        return ConversationHandler.END    
     try:
         async with AsyncSessionLocal() as conn:
             results = await conn.execute(
@@ -2305,7 +2312,7 @@ async def purchasetokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     for package in token_packages:
         package_id, package_name, tokens, price, description, validity = package
         #TODO add validity to package_info
-        package_info += f"<b>{package_name}</b>:\n{description}\n\n"
+        package_info += f"<b>{package_name}</b>:\n{description}\nTokens are valid for {validity} days\n\n"
         keyboard.append([InlineKeyboardButton(package_name, callback_data=f"select_package|{package_id}")])
 
     # Check if there are no packages available
@@ -2320,6 +2327,104 @@ async def purchasetokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.reply_text(package_info, reply_markup=reply_markup, parse_mode='HTML')
 
     return SELECTING_PACKAGE
+
+SELECTING_SUBSCRIPTION, SUBSCRIPTION_PHOTO_REQUESTED = range(2)
+async def purchaseSubscription(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Entry command for user to purchase sub packages
+    Provides user with sub details
+
+    Args:
+        update (Update): _description_
+        context (ContextTypes.DEFAULT_TYPE): _description_
+
+    Returns:
+        int: returns new state for convo handler
+    """    
+    # Retrieve token packages from the database
+    context.user_data['chat_id'] = update.effective_chat.id
+    async with AsyncSessionLocal() as conn:
+        results = await conn.execute(
+            sqlalchemy.text(
+                "SELECT subpkg_code, sub_name, number_of_tokens, duration_months, price FROM subscription_packages"
+            )
+        )
+        subscription_packages = results.fetchall()
+    
+
+    # Format packages as inline buttons
+    keyboard = []
+    package_info = "<u><b>Subscription Packages:</b></u>\n\n"
+    for package in subscription_packages:
+        subpkg_id, sub_name, tokens_per_month, duration_months, price = package
+        package_info += f"<b>{sub_name}</b>:\n${price} - {tokens_per_month} tokens/month for {duration_months} months.\n\n"
+        keyboard.append([InlineKeyboardButton(sub_name, callback_data=f"select_subscription|{subpkg_id}")])
+
+    # Check if there are no packages available
+    if not subscription_packages:
+        await update.message.reply_text('No subscription packages available.')
+        return ConversationHandler.END
+
+    # Add static package info
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(package_info, reply_markup=reply_markup, parse_mode='HTML')
+
+    return SELECTING_PACKAGE
+
+async def subscription_selection(update: Update, context: CallbackContext) -> int:
+    """
+     Saves chosen subscription in context.user_data['selected_subscription_id']
+
+    Args:
+        update (Update): _description_
+        context (CallbackContext): _description_
+
+    Returns:
+        int: State for convo handler
+    """    
+    query = update.callback_query
+    await query.answer()
+    subpkg_id = query.data.split('|')[1]
+    chat_id = context.user_data['chat_id']
+    # Check if chat_id is already in an active subscription plan
+    query_string = '''
+    SELECT EXISTS (
+    SELECT 1
+    FROM subscription_balance
+    WHERE chat_id = :chat_id AND status = 'active')
+    '''
+    params = {"chat_id": chat_id}
+    results = await safe_get_db(query_string, params)
+    already_subscribed = results[0][0]
+    
+    if already_subscribed:
+        await query.edit_message_text("You are already in an active subscription plan.\nPlease wait for that to end before purchasing a new one.")
+        return ConversationHandler.END
+    # Store the selected package_id in the user context
+    context.user_data['selected_package_id'] = subpkg_id
+
+    # Fetch package details from the database
+    query_string = "SELECT sub_name, number_of_tokens, duration_months, price FROM subscription_packages WHERE subpkg_code = :subpkg_id"
+    params = {"subpkg_id": subpkg_id}
+    results = await safe_get_db(query_string, params)
+    subscription_details = results[0]
+    if subscription_details:
+        sub_name, tokens_per_month, duration_months, price = subscription_details
+        context.user_data['sub_name'] = sub_name
+        context.user_data['tokens_per_month'] = tokens_per_month
+        context.user_data['duration_months'] = duration_months
+        context.user_data['price'] = price
+
+        confirmation_message = f"You have picked the subscription package: {sub_name}\n\nYou are required to pay ${price} for {tokens_per_month} tokens per month for {duration_months} months.\n\nPlease make the payment and send a screenshot."
+        await query.edit_message_text(confirmation_message)
+
+        # Send a photo
+        photo_path = "paynow_qrcode.jpg"
+        await query.message.reply_photo(photo=open(photo_path, 'rb'))
+        
+    # return ConversationHandler.END
+    return SUBSCRIPTION_PHOTO_REQUESTED
+
 
 async def package_selection(update: Update, context: CallbackContext) -> int:
     """
@@ -2400,6 +2505,11 @@ async def verifyPayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """    
     chat_id = update.effective_chat.id
     package_id = context.user_data['selected_package_id']
+    # Check if subscription package
+    if 's' in package_id:
+        isSubscription = True
+    else:
+        isSubscription = False
     logger.info("LOG: verifyPayment() called")
     if update.message.photo:
         logger.info("LOG: photo received")
@@ -2439,6 +2549,10 @@ async def forward_to_admin_for_acknowledgement(update: Update, context: ContextT
         results = await get_db(query_string)
         logger.info(f"Results: {results}")
         chat_id, package_id = results[0] # unpack tuple
+        if 's' in package_id:
+            isSubscription = True
+        else:
+            isSubscription = False
         # Set callback data from ID provided
         ss_accept_callback_data = f"ss_accept_{transaction_id}" # Callbackdata has fixed format: ss_<transaction_ID> (screenshot) or jp_<transaction_ID> (job post)
         ss_reject_callback_data = f"ss_reject_{transaction_id}"
@@ -2448,10 +2562,23 @@ async def forward_to_admin_for_acknowledgement(update: Update, context: ContextT
             [InlineKeyboardButton("Reject", callback_data=ss_reject_callback_data)]
         ] # Can check transaction ID if need details
         reply_markup = InlineKeyboardMarkup(keyboard)
+        if isSubscription:
+            # Get sub package details
+            query_string = "SELECT sub_name, number_of_tokens, duration_months, price FROM subscription_packages WHERE subpkg_code = :subpkg_code"
+            params = {"subpkg_code": package_id}
+            results = await safe_get_db(query_string, params)
+            sub_name, tokens_per_month, duration_months, price = results[0]
+            caption = f"Dear Admin, ${price} purchase made by {chat_id} for Subscription package ID {package_id}: {sub_name}\nThey will be allocated {tokens_per_month}tokens for {duration_months}months."
+        else:
+            query_string = "SELECT package_name, number_of_tokens, price, validity FROM token_packages WHERE package_id = :package_id"
+            params = {"package_id": package_id}
+            results = await safe_get_db(query_string, params)
+            package_name, number_of_tokens, price, validity = results[0]
+            caption = f"Dear Admin, ${price} purchase made by {chat_id} for Package ID {package_id}: {package_name}"
         await context.bot.send_photo(
             chat_id=ADMIN_CHAT_ID,
             photo=photo,
-            caption=f"Dear Admin, purchase made by {chat_id} for Package {package_id}", #TODO add details regarding transaction
+            caption=caption, #TODO add details regarding transaction
             reply_markup=reply_markup
         )
         await update.message.reply_text(
@@ -2510,6 +2637,12 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
     logger.info(f'Callback query data: {query.data}')
     query_data = query.data
     # Check which query data it is (which button admin pressed)
+    if query_data.startswith('sp_'):
+        logger.info("Subscription package query found")
+        # Getting admin response as well as transaction ID
+        status, transaction_id = query_data.split('_')[1:]
+
+
     if query_data.startswith('ss_'): 
         logger.info("SS query found")
         # Getting admin response as well as transaction ID
@@ -2519,6 +2652,10 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
         results = await get_db(query_string)
         logger.info(f"Results: {results}")
         chat_id, package_id = results[0]
+        if 's' in package_id:
+            isSubscription = True
+        else:
+            isSubscription = False
         # # Get chat id from agency id
         # query_string = f"SELECT chat_id FROM agencies WHERE id = '{agency_id}'"
         # results = await get_db(query_string)
@@ -2529,11 +2666,15 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
             query_string = f"UPDATE transactions SET status = 'Approved' WHERE transaction_id = '{transaction_id}'"
             await set_db(query_string)
             logger.info(f"Approved {transaction_id} in database!")
-            # Update balance of user account
-            (new_balance, exp_date) = await update_balance(chat_id=chat_id, package_id=package_id)
-            exp_date = exp_date.date()
-            await query.answer()  # Acknowledge the callback query to remove the loading state
-
+            if not isSubscription:
+                # Update balance of user account
+                (new_balance, exp_date) = await update_balance(chat_id=chat_id, package_id=package_id)
+                exp_date = exp_date.date()
+                await query.answer()  # Acknowledge the callback query to remove the loading state
+            elif isSubscription:
+                # Top up once and top up every month
+                (new_balance, exp_date) = await update_balance_subscription(chat_id, package_id)
+                await add_active_subscription(chat_id, package_id)
             
             # Edit the caption of the photo message
             await query.edit_message_caption(caption="You have acknowledged the screenshot.\n\nCredits have been transferred.")
@@ -2675,13 +2816,98 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
                 text = "Your posting has been rejected by an admin. Please PM admin for more details"
             await context.bot.send_message(chat_id=chat_id, text=text)
 
+async def add_active_subscription(chat_id, package_id):
+    '''
+    Assumes first month is already paid for, this will add to subscription_balance and set last distribution to today.
+    '''
+    # Checks if it is a subscription package
+    if 's' in package_id:
+        isSubscription = True
+    else:
+        raise Exception("Package is not a subscription")
+    # Get subs package details
+    query_string = "SELECT sub_name, number_of_tokens, duration_months, price FROM subscription_packages WHERE subpkg_code = :package_id"
+    params = {"package_id": package_id}
+    results = await safe_get_db(query_string, params)
+    package_details = results[0]
+    sub_name, tokens_per_month, duration_months, price = package_details
+    curr_date = datetime.now().date()
+
+    # Create new entry
+    query_string = "INSERT INTO subscription_balance (chat_id, start_date, end_date, last_distribution, status, subpkg_id) VALUES (:chat_id, :start_date, :end_date, :last_distribution, :status, :subpkg_id)"
+    start_date = curr_date
+    end_date = curr_date + relativedelta(months=duration_months)
+    last_distribution = curr_date
+    status = 'active'
+    params = {
+        "chat_id": chat_id,
+        "start_date": start_date,
+        "end_date": end_date,
+        "last_distribution": last_distribution,
+        "status": status,
+        "subpkg_id": package_id
+    }
+    await safe_set_db(query_string, params)
+    return True
+
+async def update_balance_subscription(chat_id, package_id):
+    '''
+    Checks details of sub pacakge and gives user first month of payment
+    '''
+    # Checks if it is a subscription package
+    if 's' in package_id:
+        isSubscription = True
+    else:
+        raise Exception("Package is not a subscription")
+    # Get subs package details
+    query_string = "SELECT sub_name, number_of_tokens, duration_months, price FROM subscription_packages WHERE subpkg_code = :package_id"
+    params = {"package_id": package_id}
+    results = await safe_get_db(query_string, params)
+    package_details = results[0]
+    sub_name, tokens_per_month, duration_months, price = package_details
+    # Give one month of tokens first, with expiry being one month as well
+
+    # Check if user chat_id has row in token_balance table for db
+    query_string = f"SELECT EXISTS (SELECT 1 FROM token_balance WHERE chat_id = '{chat_id}')"
+    results = await get_db(query_string)
+    # Calculate new expiry date
+    curr_date = datetime.now()
+    new_date = curr_date + relativedelta(months=1) #! hardcoded package expiry to be each month
+    # If have existing entry
+    logger.info(f"Chat ID is already in token_balance table: {results}")
+    if (results[0][0]):
+        # Get balance and current expiry date of tokens
+        query_string = f"SELECT tokens, exp_date FROM token_balance WHERE chat_id = '{chat_id}'"
+        results = await get_db(query_string)
+        curr_tokens, curr_exp_date = results[0]
+        # Calculate new tokens
+        new_balance = curr_tokens + tokens_per_month
+        # If extended date is longer than current exp date, updates both token balance and exp date of chat_id
+        if new_date > curr_exp_date:
+            query_string = f"UPDATE token_balance SET tokens = '{new_balance}', exp_date = '{new_date}' WHERE chat_id = '{chat_id}'"
+
+        # Otherwise, dont touch exp date
+        else:
+            query_string = f"UPDATE token_balance SET tokens = '{new_balance}' WHERE chat_id = '{chat_id}'"
+            new_date = curr_exp_date # Just for returning the expiry date, new_date is not used here
+        # Update db
+        await set_db(query_string)
+        return new_balance, new_date
+    # If no existing entry, create new entry
+    else: 
+        # Create new entry
+        query_string = f"INSERT INTO token_balance (chat_id, tokens, exp_date) VALUES ('{chat_id}', '{tokens_per_month}', '{new_date}')"
+        await set_db(query_string)
+        logger.info("Chat ID does not exist in token_balance table")
+        return tokens_per_month, new_date
 
 async def update_balance(chat_id, package_id):
     """
     Updates account balance in database for newly purchased package
     Returns:
         Updated balance of account
-    """    
+    """
+
     # Check number of tokens and validity of purchased package, validity is in days
     query_string = f"SELECT number_of_tokens,validity FROM token_packages WHERE package_id = '{package_id}'"
     results = await get_db(query_string)
@@ -2727,6 +2953,46 @@ async def update_balance(chat_id, package_id):
 
 ###########################################################################################################################################################
 #? Misc Commands
+async def view_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    View tokens
+    """
+    # Get token balance with chat_id
+    chat_id = update.effective_chat.id
+    query_string = "SELECT tokens, exp_date FROM token_balance WHERE chat_id = :chat_id"
+    params = {"chat_id": chat_id}
+    
+    # Check if user chat_id has row in token_balance table for db
+    query_string = f"SELECT EXISTS (SELECT 1 FROM token_balance WHERE chat_id = '{chat_id}')"
+    results = await get_db(query_string)
+    # If have existing entry
+    logger.info(f"Chat ID is already in token_balance table: {results}")
+    if (results[0][0]):
+        # Get balance and current expiry date of tokens
+        query_string = f"SELECT tokens, exp_date FROM token_balance WHERE chat_id = '{chat_id}'"
+        results = await get_db(query_string)
+        curr_tokens, curr_exp_date = results[0]
+        # Notify user
+        await update.message.reply_text(text=f"You have {curr_tokens} tokens expiring on {curr_exp_date}.")
+
+    else: 
+        await update.message.reply_text(text="You have no tokens available.")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Get Grp ChatID and send message to group
 async def get_chat_id(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
@@ -2770,7 +3036,8 @@ async def global_error_handler(update, context):
 
 ###########################################################################################################################################################   
 # Function to check and update expired credits
-async def remove_expired_credits(bot):
+async def daily_checks(bot):
+    # remove expired credits
     try:
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         query_string = f"SELECT chat_id, tokens FROM token_balance WHERE exp_date <= '{now}'"
@@ -2784,6 +3051,83 @@ async def remove_expired_credits(bot):
             logger.info(f"Removed {expiring_tokens} expired tokens from {chat_id} account")
             # notify users that their credits have expired
             await bot.send_message(chat_id=chat_id, text=f"{expiring_tokens} tokens have expired today!\n\nTo purchase more tokens, please use the /purchasetokens command!")
+    except Exception as e:
+        logger.info(e)
+    # check active subscriptions
+    try:
+        # get active subscriptions
+        now = datetime.now().date()
+
+        query_string = "SELECT id, chat_id, end_date, last_distribution, subpkg_id FROM subscription_balance WHERE status = :status"
+        params = {"status": 'active'}
+        active_subs = await safe_get_db(query_string, params)
+        # chat_id, end_date, last_distribution, subpkg_id = active_subs
+        # Get tokens_per_month from subscription_packages with subpkg_id
+
+
+
+        for sub_balance_id, chat_id, end_date, last_distribution, subpkg_id in active_subs:
+            # if expired
+            if now >= end_date:
+                # Set status to expired
+                query_string = "UPDATE subscription_balance SET status = :status WHERE id = :sub_balance_id"
+                params = {"status": "expired", "sub_balance_id": sub_balance_id}
+                continue # goes to next subscription
+
+            # if active subscription
+            query_string = "SELECT sub_name, number_of_tokens, duration_months FROM subscription_packages WHERE subpkg_code = :subpkg_code"
+            params = {"subpkg_code": subpkg_id}
+            results = await safe_get_db(query_string, params)
+            sub_name, tokens_per_month, duration_months = results[0]
+
+            # Calculate the next distribution date
+            next_distribution_date = last_distribution + relativedelta(months=1)
+            
+            if (now >= next_distribution_date):
+                # Set last distribution_date
+                query_string = "UPDATE subscription_balance SET last_distribution = :last_distribution WHERE id = :id"
+                params = {
+                    "last_distribution_date": now,
+                    "id": sub_balance_id
+                    }
+                await safe_set_db(query_string, params)
+                
+                # Check if user chat_id has row in token_balance table for db
+                query_string = f"SELECT EXISTS (SELECT 1 FROM token_balance WHERE chat_id = '{chat_id}')"
+                results = await get_db(query_string)
+                # Calculate new expiry date
+                curr_date = now
+                new_date = curr_date + relativedelta(months=1) #! hardcoded package expiry to be each month
+                # If have existing entry
+                logger.info(f"Chat ID is already in token_balance table: {results}")
+                if (results[0][0]):
+                    # Get balance and current expiry date of tokens
+                    query_string = f"SELECT tokens, exp_date FROM token_balance WHERE chat_id = '{chat_id}'"
+                    results = await get_db(query_string)
+                    curr_tokens, curr_exp_date = results[0]
+                    # Calculate new tokens
+                    new_balance = curr_tokens + tokens_per_month
+                    # If extended date is longer than current exp date, updates both token balance and exp date of chat_id
+                    if new_date > curr_exp_date:
+                        query_string = f"UPDATE token_balance SET tokens = '{new_balance}', exp_date = '{new_date}' WHERE chat_id = '{chat_id}'"
+                    # Otherwise, dont touch exp date
+                    else:
+                        query_string = f"UPDATE token_balance SET tokens = '{new_balance}' WHERE chat_id = '{chat_id}'"
+                        new_date = curr_exp_date # Just for returning the expiry date, new_date is not used here
+                    # Update db
+                    await set_db(query_string)
+                    bot.send_message(chat_id=chat_id, text=f"{tokens_per_month} has been allocated to your account.\nYour have a new balance of {new_balance}, expiring on {new_date}.")
+
+                    # return new_balance, new_date
+                # If no existing entry, create new entry
+                else: 
+                    # Create new entry
+                    query_string = f"INSERT INTO token_balance (chat_id, tokens, exp_date) VALUES ('{chat_id}', '{tokens_per_month}', '{new_date}')"
+                    await set_db(query_string)
+                    logger.info("Chat ID does not exist in token_balance table")
+                    bot.send_message(chat_id=chat_id, text=f"{tokens_per_month} has been allocated to your account.\nYour have a new balance of {tokens_per_month}, expiring on {new_date}.")
+
+                    # return tokens_per_month, new_date
     except Exception as e:
         logger.info(e)
 
@@ -2812,6 +3156,7 @@ async def main() -> None:
     )
 
     # Command handlers
+    application.add_handler(CommandHandler('viewtokens', view_tokens))
     application.add_handler(CommandHandler('create_trans', create_transaction_entry))
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help))
@@ -2921,21 +3266,54 @@ async def main() -> None:
     
     application.add_handler(job_repost_handler)
     
+# Add Subscription package convo handler
+    add_subscription_handler = ConversationHandler(
+        entry_points=[CommandHandler('addsubscription', start_add_subscription)],
 
-#Add token package convo handler
+        states={
+            GET_SUB_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_subscription_name)],
+            GET_NUM_MONTHS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_num_months)],
+            GET_TOKENS_PER_MONTH: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_tokens_per_month)],
+            GET_PRICE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_price)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
+    application.add_handler(add_subscription_handler)
+
+# Delete subscription package convo handler
+    delete_sub_handler = ConversationHandler(
+        entry_points=[CommandHandler('deletesubscription', list_subscriptions)],
+        states={
+            DELETE_CONFIRMATION: [
+                CallbackQueryHandler(confirm_deletion, pattern=r'^delete_sub|.*$'),
+            ],
+            DELETE_SUBSCRIPTION: [
+                CallbackQueryHandler(delete_subscription, pattern=r'^confirm_delete|.*$'),
+                CallbackQueryHandler(delete_subscription, pattern='cancel_delete')
+            ]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
+    application.add_handler(delete_sub_handler)
+
+# Add token package convo handler
     add_package_handler = ConversationHandler(
-    entry_points=[CommandHandler('addpackage', add_package)],
-    states={
-        PACKAGE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, package_name_input)],
-        NUMBER_OF_TOKENS: [MessageHandler(filters.TEXT & ~filters.COMMAND, number_of_tokens_input)],
-        PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, purchase_amount_input)],
-        DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, description_input)]
-    },
-    fallbacks=[CommandHandler('cancel', cancel)]
-)
+        entry_points=[CommandHandler('addpackage', add_package)],
+        states={
+            PACKAGE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, package_name_input)],
+            NUMBER_OF_TOKENS: [MessageHandler(filters.TEXT & ~filters.COMMAND, number_of_tokens_input)],
+            PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, purchase_amount_input)],
+            DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, description_input)],
+            VALIDITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, validity_input)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)]
+    )
 
     application.add_handler(add_package_handler)
-
 
 # Delete token package convo handler
     delete_package_handler = ConversationHandler(
@@ -2948,7 +3326,16 @@ async def main() -> None:
 )
     application.add_handler(delete_package_handler)
 
-
+# Purchasing tokens convo handler
+    purchase_subscription_handler = ConversationHandler(
+    entry_points=[CommandHandler('purchasesubscription', purchaseSubscription)],
+    states={
+        SELECTING_SUBSCRIPTION: [CallbackQueryHandler(subscription_selection)],
+        SUBSCRIPTION_PHOTO_REQUESTED: [MessageHandler(filters.PHOTO, verifyPayment)]
+    },
+    fallbacks=[CommandHandler('cancel', cancel)]
+    )
+    application.add_handler(purchase_subscription_handler)
 # Purchasing tokens convo handler
     purchase_tokens_handler = ConversationHandler(
     entry_points=[CommandHandler('purchasetokens', purchasetokens)],
@@ -3076,7 +3463,7 @@ async def main() -> None:
         )
     )
     loop = asyncio.get_event_loop()
-    schedule.every().day.at("00:00").do(lambda: asyncio.run_coroutine_threadsafe(remove_expired_credits(application.bot), loop))
+    schedule.every().day.at("00:00").do(lambda: asyncio.run_coroutine_threadsafe(daily_checks(application.bot), loop))
 
     # Create the asyncio task for running the schedule
     schedule_task = loop.create_task(run_schedule())
