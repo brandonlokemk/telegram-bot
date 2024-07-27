@@ -250,32 +250,287 @@ class CustomContext(CallbackContext[ExtBot, dict, dict, dict]):
         return super().from_update(update, application)
 ###########################################################################################################################################################   
 
-# Bot Commands
-# Start command
-async def start(update: Update, context: CustomContext) -> None:
-    """Display a message with instructions on how to use this bot."""
-    text = (
-        "Welcome to Telegram Jobs Bot!.\n"
-        "If you need help, please use the /help command!"
-    )
-    # agency_profs = await async_test_db() #TODO remove later
-    await update.message.reply_html(text=text) #TODO change text
 
-# Help command
-async def help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    '''Displays help messages'''
-    payload_url = html.escape(f"{URL}/submitpayload?user_id=<your user id>&payload=<payload>")
-    await update.message.reply_html(
-        f"To check if the bot is still running, call <code>{URL}/healthcheck</code>.\n\n"
-        f"To post a custom update, call <code>{payload_url}</code>."
-    )
+# Bot Commands
+
+# NAME, DOB, PAST_EXPERIENCES, CITIZENSHIP, RACE, GENDER, HIGHEST_EDUCATION, WHATSAPP_NUMBER, FULL_NAME, COMPANY_NAME, COMPANY_UEN = range(11)
+
+# # Start command
+# async def start(update: Update, context: CustomContext) -> int:
+    # """Start the registration process."""
+    # keyboard = [
+    #     [
+    #         InlineKeyboardButton("Applicant", callback_data='applicant'),
+    #         InlineKeyboardButton("Agency", callback_data='agency'),
+    #     ]
+    # ]
+    # reply_markup = InlineKeyboardMarkup(keyboard)
+    # await update.message.reply_text('Hi, I am SG Part Timers and Talents\' job bot.\n May I ask if you are a Job Applicant or a Job Poster?', reply_markup=reply_markup)
+    # return NAME
+
+# # Register button handler
+# async def register_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Clicked on register button")
+#     query = update.callback_query
+#     await query.answer()
+
+#     user_handle = update.effective_user.username
+#     chat_id = update.effective_chat.id
+
+#     context.user_data['user_handle'] = user_handle
+#     context.user_data['account_type'] = query.data
+#     context.user_data['chat_id'] = chat_id
+
+#     if query.data == 'applicant':
+        # await query.edit_message_text(text="You chose Applicant.")
+        # await query.message.reply_text("Please answer the following questions for us to complete your profile for you and send out for the job!")
+        # await query.message.reply_text("Please enter your full name:")
+#         context.user_data['registration_step'] = 'name'
+#         return NAME
+#     elif query.data == 'agency':
+        # await query.edit_message_text(text="You chose Agency.")
+        # await query.message.reply_text("In SG Part Timers & Talents telegram group, we use the currency token to post jobs and shortlist talent. Please check out our packages to post a job!")
+        # await query.message.reply_text("Please enter your full name:")
+#         context.user_data['registration_step'] = 'full_name'
+#         return FULL_NAME
+
+# # Define the rest of the functions for each step 
+# async def ask_for_dob(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Entered ask_for_dob")
+#     context.user_data['name'] = update.message.text
+#     await update.message.reply_text('Please enter your date of birth (YYYY-MM-DD):')
+#     context.user_data['registration_step'] = 'dob'
+#     return DOB
+
+
+# async def ask_for_past_experiences(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Entered ask_for_past_experiences")
+#     context.user_data['dob'] = update.message.text
+#     await update.message.reply_text('Please enter your past experiences to improve chances of getting shortlisted:')
+#     context.user_data['registration_step'] = 'past_experiences'
+#     return PAST_EXPERIENCES
+
+# async def ask_for_citizenship(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Entered ask_for_citizenship")
+#     context.user_data['past_experiences'] = update.message.text
+
+#     keyboard = [
+#         [InlineKeyboardButton("Singaporean", callback_data='Singaporean')],
+#         [InlineKeyboardButton("Permenant Resident(PR)", callback_data='Permenant Resident(PR)')],
+#         [InlineKeyboardButton("Foreigner", callback_data='Foreigner')]
+#     ]
+#     reply_markup = InlineKeyboardMarkup(keyboard)
+
+#     await update.message.reply_text('Please enter your citizenship status:', reply_markup=reply_markup)
+#     context.user_data['registration_step'] = 'citizenship'
+#     return CITIZENSHIP
+
+
+# async def citizenship_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Clicked citizenship button")
+#     query = update.callback_query
+#     await query.answer()
+
+#     context.user_data['citizenship'] = query.data
+
+#      # Move to the next step
+#     return await ask_for_race(update, context)
+#     return RACE
+
+# async def ask_for_race(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Entered ask_for_race")
+#     keyboard = [
+#         [InlineKeyboardButton("Chinese", callback_data='Chinese')],
+#         [InlineKeyboardButton("Malay", callback_data='Malay')],
+#         [InlineKeyboardButton("Indian", callback_data='Indian')],
+#         [InlineKeyboardButton("Eurasian", callback_data='Eurasian')],
+#         [InlineKeyboardButton("Others", callback_data='Others')]
+#     ]
+#     reply_markup = InlineKeyboardMarkup(keyboard)
+#     await update.callback_query.edit_message_text('Please enter your race:',reply_markup=reply_markup)
+#     context.user_data['registration_step'] = 'race'
+#     return RACE
+
+
+# async def race_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Race button clicked")
+#     query = update.callback_query
+#     await query.answer()
+
+#     context.user_data['race'] = query.data
+
+#     # Move to the next step
+#     return await ask_for_gender(update, context)
+#     return GENDER
+
+
+# async def ask_for_gender(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Entered ask_for_gender")
+#     keyboard = [
+#         [
+#             InlineKeyboardButton("Male", callback_data='male'),
+#             InlineKeyboardButton("Female", callback_data='female'),
+#         ]]
+#     reply_markup = InlineKeyboardMarkup(keyboard)
+#     await update.callback_query.edit_message_text('Please select your gender:', reply_markup=reply_markup)
+
+#     context.user_data['registration_step'] = 'gender'
+#     return GENDER
+
+# async def gender_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Gender button clicked")
+#     query = update.callback_query
+#     await query.answer()
+
+#     context.user_data['gender'] = query.data
+
+#     # Move to the next step
+#     return await ask_for_highest_education(update, context)
+#     return HIGHEST_EDUCATION
+
+# async def ask_for_highest_education(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Entered ask_for_highest_education")
+
+#     keyboard = [
+#         [InlineKeyboardButton("O-level Graduate", callback_data='O-level Graduate')],
+#         [InlineKeyboardButton("ITE Graduate", callback_data='ITE Graduate')],
+#         [InlineKeyboardButton("A-level Graduate", callback_data='A-level Graduate')],
+#         [InlineKeyboardButton("Diploma Graduate", callback_data='Diploma Graduate')],
+#         [InlineKeyboardButton("Degree Graduate", callback_data='Degree Graduate')],
+#         [InlineKeyboardButton("Undergraduate", callback_data='Undergraduate')],
+#         [InlineKeyboardButton("Studying in Poly/JC", callback_data='Studying in Poly/JC')]
+#     ]
+#     reply_markup = InlineKeyboardMarkup(keyboard)
+#     await update.callback_query.edit_message_text('Please select your highest education:',reply_markup= reply_markup)
+
+#     context.user_data['registration_step'] = 'highest_education'
+#     return HIGHEST_EDUCATION
+
+# async def highest_education_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Education button clicked")
+#     query = update.callback_query
+#     await query.answer()
+
+#     context.user_data['highest_education'] = query.data
+
+#     # Move to the next step
+#     return await ask_for_whatsapp_number(update, context)
+#     return WHATSAPP_NUMBER
+
+
+# async def ask_for_whatsapp_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Entered ask_for_whatsapp_number")
+    
+#     await  update.callback_query.edit_message_text('Please enter your WhatsApp number:')
+#     context.user_data['registration_step'] = 'whatsapp_number'
+#     return WHATSAPP_NUMBER
+
+# async def save_applicant(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Entered save_applicant")
+#     context.user_data['whatsapp_number'] = update.message.text
+#     async with AsyncSessionLocal() as conn:
+#         await conn.execute(
+#             sqlalchemy.text(
+#         f"INSERT INTO applicants (user_handle, chat_id, name, dob, past_exp, citizenship, race, gender, education, whatsapp_no) VALUES ('{context.user_data['user_handle']}','{context.user_data['chat_id']}', '{context.user_data['name']}', '{context.user_data['dob']}', '{context.user_data['past_experiences']}', '{context.user_data['citizenship']}', '{context.user_data['race']}', '{context.user_data['gender']}', '{context.user_data['highest_education']}', '{context.user_data['whatsapp_number']}')"
+
+#     )
+#         )
+#         await conn.commit()
+#     await update.message.reply_text('Registration successful!')
+#     return ConversationHandler.END
+
+# async def ask_for_company_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Entered ask_for_company_name")
+#     context.user_data['full_name'] = update.message.text
+#     await update.message.reply_text('Please enter your company name:')
+#     context.user_data['registration_step'] = 'company_name'
+#     return COMPANY_NAME
+
+# async def ask_for_company_uen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Entered ask_for_company_uen")
+#     context.user_data['company_name'] = update.message.text
+#     await update.message.reply_text('Please enter your company UEN:')
+#     context.user_data['registration_step'] = 'company_uen'
+#     return COMPANY_UEN
+
+# async def save_agency(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Entered save_agency")
+#     context.user_data['company_uen'] = update.message.text
+#     async with AsyncSessionLocal() as conn:
+#         await conn.execute(
+#             sqlalchemy.text(
+#         f'''INSERT INTO agencies (user_handle, chat_id, name, agency_name, agency_uen) VALUES ("{context.user_data['user_handle']}", "{context.user_data['chat_id']}", "{context.user_data['full_name']}", "{context.user_data['company_name']}", "{context.user_data['company_uen']}")'''
+#     )
+#         )
+#         await conn.commit()
+#     await update.message.reply_text('Registration successful!')
+#     return ConversationHandler.END
+
+# # Main text handler for registration
+# async def registration_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     logger.info("Entered registration_text_handler")
+#     if 'registration_step' in context.user_data:
+#         step = context.user_data['registration_step']
+        
+#         if 'previous_steps' not in context.user_data:
+#             context.user_data['previous_steps'] = []
+#         context.user_data['previous_steps'].append(step)
+        
+#         if step == 'name':
+#             logger.info("ENTERED NAME IF STATEMENT")
+#             return await ask_for_dob(update, context)
+#         elif step == 'dob':
+#             return await ask_for_past_experiences(update, context)
+#         elif step == 'past_experiences':
+#             return await ask_for_citizenship(update, context)
+#         elif step == 'citizenship':
+#             return await ask_for_race(update, context)
+#         elif step == 'race':
+#             return await ask_for_gender(update, context)
+#         elif step == 'gender':
+#             return await ask_for_highest_education(update, context)
+#         elif step == 'highest_education':
+#             return await ask_for_whatsapp_number(update, context)
+#         elif step == 'whatsapp_number':
+#             return await save_applicant(update, context)
+#         elif step == 'full_name':
+#             return await ask_for_company_name(update, context)
+#         elif step == 'company_name':
+#             return await ask_for_company_uen(update, context)
+#         elif step == 'company_uen':
+#             return await save_agency(update, context)
+        
+#     return ConversationHandler.END
+
+
+
+# # Register command
+# # TODO add error/wrong input filtering/handling
+# # Start command
+# async def start(update: Update, context: CustomContext) -> None:
+#     """Display a message with instructions on how to use this bot."""
+#     text = (
+#         "Welcome to Telegram Jobs Bot!.\n"
+#         "If you need help, please use the /help command!"
+#     )
+#     # agency_profs = await async_test_db() #TODO remove later
+#     await update.message.reply_html(text=text) #TODO change text
+
+# # Help command
+# async def help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#     '''Displays help messages'''
+#     payload_url = html.escape(f"{URL}/submitpayload?user_id=<your user id>&payload=<payload>")
+#     await update.message.reply_html(
+#         f"To check if the bot is still running, call <code>{URL}/healthcheck</code>.\n\n"
+#         f"To post a custom update, call <code>{payload_url}</code>."
+#     )
 
 # Register command
 #TODO add error/wrong input filtering/handling
 
 NAME, DOB, PAST_EXPERIENCES, CITIZENSHIP, RACE, GENDER, HIGHEST_EDUCATION, WHATSAPP_NUMBER, FULL_NAME, COMPANY_NAME, COMPANY_UEN = range(11)
 
-async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = [
         [
             InlineKeyboardButton("Applicant", callback_data='applicant'),
@@ -283,7 +538,7 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text('Please choose your account type:', reply_markup=reply_markup)
+    await update.message.reply_text('Hi, I am SG Part Timers and Talents\' job bot.\nMay I ask if you are a Job Applicant or a Job Poster?', reply_markup=reply_markup)
     return NAME
 
 # Handle button clicks
@@ -300,11 +555,15 @@ async def register_button(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     context.user_data['chat_id'] = chat_id
 
     if query.data == 'applicant':
-        await query.edit_message_text(text="You chose Applicant. Please enter your full name:")
+        await query.edit_message_text(text="You chose Applicant.")
+        await query.message.reply_text("Please answer the following questions for us to complete your profile for you and send out for the job!")
+        await query.message.reply_text("Please enter your full name:")
         context.user_data['registration_step'] = 'name'
         return NAME
     elif query.data == 'agency':
-        await query.edit_message_text(text="You chose Agency. Please enter your full name:")
+        await query.edit_message_text(text="You chose Agency.")
+        await query.message.reply_text("In SG Part Timers & Talents telegram group, we use the currency token to post jobs and shortlist talent. Please check out our packages to post a job!")
+        await query.message.reply_text("Please enter your full name:")
         context.user_data['registration_step'] = 'full_name'
         return FULL_NAME
 
@@ -331,7 +590,8 @@ async def ask_for_citizenship(update: Update, context: ContextTypes.DEFAULT_TYPE
     keyboard = [
         [InlineKeyboardButton("Singaporean", callback_data='Singaporean')],
         [InlineKeyboardButton("Permenant Resident(PR)", callback_data='Permenant Resident(PR)')],
-        [InlineKeyboardButton("Foreigner", callback_data='Foreigner')]
+        [InlineKeyboardButton("Student Pass", callback_data='Student Pass')],
+        [InlineKeyboardButton("Foreign Passport Holder", callback_data='Foreign Passport Holder')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -516,6 +776,7 @@ async def registration_text_handler(update: Update, context: ContextTypes.DEFAUL
         
     logger.info("exited registration_text_handler")
     return ConversationHandler.END
+
     
 
 ###########################################################################################################################################################   
@@ -3158,7 +3419,7 @@ async def main() -> None:
     # Command handlers
     application.add_handler(CommandHandler('viewtokens', view_tokens))
     application.add_handler(CommandHandler('create_trans', create_transaction_entry))
-    application.add_handler(CommandHandler("start", start))
+    # application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help))
     # application.add_handler(CommandHandler("register", register))
     application.add_handler(CommandHandler("deleteprofile", delete_profile))
@@ -3181,8 +3442,26 @@ async def main() -> None:
     application.add_handler(payment_handler)
 
     # Registration Convo Handler
+#     registration_conversation_handler = ConversationHandler(
+#     entry_points=[CommandHandler('start', start)],
+#     states={
+#         NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler), CallbackQueryHandler(register_button)],
+#         DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+#         PAST_EXPERIENCES: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+#         CITIZENSHIP: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler), CallbackQueryHandler(citizenship_button)],
+#         RACE: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler), CallbackQueryHandler(race_button)],
+#         GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler), CallbackQueryHandler(gender_button)],
+#         HIGHEST_EDUCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler), CallbackQueryHandler(highest_education_button)],
+#         WHATSAPP_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+#         FULL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+#         COMPANY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+#         COMPANY_UEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+#     },
+#     fallbacks=[CommandHandler('cancel', cancel)]
+# )
+
     registration_conversation_handler = ConversationHandler(
-    entry_points=[CommandHandler('register', register)],
+    entry_points=[CommandHandler('start', start)],
     states={
         NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
         DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
