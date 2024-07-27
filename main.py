@@ -75,8 +75,9 @@ logger = logging.getLogger(__name__)
 
 # Define configuration constants
 URL = os.environ['CLOUD_URL']
-# ADMIN_CHAT_ID = 494057457 #TODO change
-ADMIN_CHAT_ID = 1320357219
+ADMIN_CHAT_ID = 494057457 #TODO change
+# ADMIN_CHAT_ID = 1320357219
+# ADMIN_CHAT_ID
 CHANNEL_ID = -1002192841091 #TODO change
 PORT = 8080
 BOT_TOKEN = os.environ['BOT_TOKEN'] # nosec B105
