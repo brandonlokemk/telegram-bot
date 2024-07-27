@@ -81,9 +81,9 @@ ADMIN_CHAT_ID = 494057457 #TODO change
 CHANNEL_ID = -1002192841091 #TODO change
 PORT = 8080
 BOT_TOKEN = os.environ['BOT_TOKEN'] # nosec B105
-JOB_POST_PRICE = 20
-PART_JOB_POST_PRICE = 15
-JOB_REPOST_PRICE = 10
+JOB_POST_PRICE = 70
+PART_JOB_POST_PRICE = 45
+JOB_REPOST_PRICE = 30
 
 # initialize Connector object
 connector = Connector()
@@ -253,13 +253,23 @@ class CustomContext(CallbackContext[ExtBot, dict, dict, dict]):
 # Bot Commands
 # Start command
 async def start(update: Update, context: CustomContext) -> None:
-    """Display a message with instructions on how to use this bot."""
+    """
+    Links their current telehandle to their chat id in the user_data table in DB
+    Display a message with instructions on how to use this bot."""
     text = (
-        "Welcome to Telegram Jobs Bot!.\n"
-        "If you need help, please use the /help command!"
+        # "Welcome to Telegram Jobs Bot!.\n"
+        # "If you need help, please use the /help command!"
+        "Hi, I am SG Part Timers & Talents’ job bot.\nMay I ask if you are a Job Applicant or a Job Poster?"
     )
+    # Links current tele handle to chat_id
+    chat_id = update.effective_chat.id
+    user_handle = update.effective_user.name
+    query_string = "INSERT INTO user_data (chat_id, user_handle) VALUES (:chat_id, :user_handle) ON DUPLICATE KEY UPDATE user_handle=VALUES(user_handle)"
+    params = {"chat_id": chat_id, "user_handle": user_handle}
+    await safe_set_db(query_string, params)
     # agency_profs = await async_test_db() #TODO remove later
     await update.message.reply_html(text=text) #TODO change text
+    await register(update, context)
 
 # Help command
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1231,6 +1241,8 @@ async def post_job_in_channel(update: Update, context: ContextTypes.DEFAULT_TYPE
     keyboard = []
     apply_button = [InlineKeyboardButton("Apply", callback_data=f"apply_{job_post_id}")]
     keyboard.append(apply_button)
+    # post_job_button = [InlineKeyboardButton("Post a Job", callback_data="post_job")]
+    # keyboard.append(post_job_button)
     reply_markup = InlineKeyboardMarkup(keyboard)
     await context.bot.send_message(chat_id=CHANNEL_ID, text=message, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
 
@@ -3049,8 +3061,15 @@ async def daily_checks(bot):
             query_string = f"DELETE from token_balance WHERE chat_id = '{chat_id}'"
             await set_db(query_string)
             logger.info(f"Removed {expiring_tokens} expired tokens from {chat_id} account")
-            # notify users that their credits have expired
+            # Get tele handle from chat_id
+            query_string = "SELECT user_handle FROM user_data WHERE chat_id = :chat_id"
+            params = {"chat_id": chat_id}
+            results = await safe_get_db(query_string, params)
+            user_handle = results[0][0]
+
+            # notify users that their credits have expired (send to admin as well)
             await bot.send_message(chat_id=chat_id, text=f"{expiring_tokens} tokens have expired today!\n\nTo purchase more tokens, please use the /purchasetokens command!")
+            await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"{expiring_tokens} tokens has expired from {user_handle}'s account.") #TODO test this
     except Exception as e:
         logger.info(e)
     # check active subscriptions
