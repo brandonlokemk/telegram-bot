@@ -1482,7 +1482,7 @@ async def shortlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     agency_ids = [row[0] for row in agency_ids]
 
     # Retrieve job titles and industries for the agency_id(s) from the job_posts table
-    query = "SELECT id, job_title, company_industry FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
+    query = "SELECT id, job_title, company_name FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
     job_posts = await safe_get_db(query, {"agency_ids": tuple(agency_ids)})
 
     if not job_posts:
@@ -1536,7 +1536,7 @@ async def select_job(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         agency_ids = [row[0] for row in agency_ids]
 
         # Retrieve job titles and industries for the agency_id(s) from the job_posts table
-        query = "SELECT id, job_title, company_industry FROM job_posts WHERE agency_id IN :agency_ids"
+        query = "SELECT id, job_title, company_name FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
         job_posts = await safe_get_db(query, {"agency_ids": tuple(agency_ids)})
 
         if not job_posts:
@@ -1558,7 +1558,7 @@ async def select_job(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['selected_job_id'] = job_id
 
     # Retrieve the selected job title and company industry
-    query = "SELECT job_title, company_industry FROM job_posts WHERE id = :job_id"
+    query = "SELECT job_title, company_name FROM job_posts WHERE id = :job_id"
     job = await safe_get_db(query, {"job_id": job_id})
 
     if not job:
@@ -1613,8 +1613,8 @@ async def select_job(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             reply_markup = InlineKeyboardMarkup(keyboard)
             shortlists = context.user_data.get('shortlists')
             # Add Shortlist button if shortlists are available
-            if shortlists > 0:
-                keyboard.append([InlineKeyboardButton("Shortlist", callback_data=f"shortlist|{applicant_id}")])
+            
+            keyboard.append([InlineKeyboardButton("Shortlist", callback_data=f"shortlist|{applicant_id}")])
 
             # Add Done button
             keyboard.append([InlineKeyboardButton("Done", callback_data="done")])
