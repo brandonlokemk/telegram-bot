@@ -40,7 +40,7 @@ from http import HTTPStatus
 import uvicorn
 from asgiref.wsgi import WsgiToAsgi
 from flask import Flask, Response, abort, make_response, request
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, InputFile
+from telegram import Update, Message, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, InputFile
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -75,15 +75,16 @@ logger = logging.getLogger(__name__)
 
 # Define configuration constants
 URL = os.environ['CLOUD_URL']
-ADMIN_CHAT_ID = 494057457 #TODO change
+# ADMIN_CHAT_ID = 494057457 #TODO change
+ADMIN_CHAT_ID = 566682368
 # ADMIN_CHAT_ID = 1320357219
 # ADMIN_CHAT_ID
 CHANNEL_ID = -1002192841091 #TODO change
 PORT = 8080
 BOT_TOKEN = os.environ['BOT_TOKEN'] # nosec B105
-JOB_POST_PRICE = 20
-PART_JOB_POST_PRICE = 15
-JOB_REPOST_PRICE = 10
+JOB_POST_PRICE = 70
+PART_JOB_POST_PRICE = 45
+JOB_REPOST_PRICE = 30
 
 # initialize Connector object
 connector = Connector()
@@ -249,18 +250,6 @@ class CustomContext(CallbackContext[ExtBot, dict, dict, dict]):
             return cls(application=application, user_id=update.user_id)
         return super().from_update(update, application)
 ###########################################################################################################################################################   
-
-# Bot Commands
-# Start command
-async def start(update: Update, context: CustomContext) -> None:
-    """Display a message with instructions on how to use this bot."""
-    text = (
-        "Welcome to Telegram Jobs Bot!.\n"
-        "If you need help, please use the /help command!"
-    )
-    # agency_profs = await async_test_db() #TODO remove later
-    await update.message.reply_html(text=text) #TODO change text
-
 # Help command
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     '''Displays help messages'''
@@ -273,9 +262,15 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # Register command
 #TODO add error/wrong input filtering/handling
 
-NAME, DOB, PAST_EXPERIENCES, CITIZENSHIP, RACE, GENDER, HIGHEST_EDUCATION, WHATSAPP_NUMBER, FULL_NAME, COMPANY_NAME, COMPANY_UEN = range(11)
+NAME, DOB, PAST_EXPERIENCES, CITIZENSHIP, RACE, GENDER, HIGHEST_EDUCATION, LANGUAGES_SPOKEN, WHATSAPP_NUMBER, FULL_NAME, COMPANY_NAME, COMPANY_UEN = range(12)
 
-async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # Links current tele handle to chat_id
+    chat_id = update.effective_chat.id
+    user_handle = update.effective_user.name
+    query_string = "INSERT INTO user_data (chat_id, user_handle) VALUES (:chat_id, :user_handle) ON DUPLICATE KEY UPDATE user_handle=VALUES(user_handle)"
+    params = {"chat_id": chat_id, "user_handle": user_handle}
+    await safe_set_db(query_string, params)
     keyboard = [
         [
             InlineKeyboardButton("Applicant", callback_data='applicant'),
@@ -283,7 +278,7 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text('Please choose your account type:', reply_markup=reply_markup)
+    await update.message.reply_text('Hi, I am SG Part Timers and Talents\' job bot.\nMay I ask if you are a Job Applicant or a Job Poster?', reply_markup=reply_markup)
     return NAME
 
 # Handle button clicks
@@ -300,26 +295,61 @@ async def register_button(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     context.user_data['chat_id'] = chat_id
 
     if query.data == 'applicant':
-        await query.edit_message_text(text="You chose Applicant. Please enter your full name:")
+        await query.edit_message_text(text="You chose Applicant.")
+        await query.message.reply_text("Please answer the following questions for us to complete your profile for you and send out for the job!")
+        await query.message.reply_text("Please enter your full name:")
         context.user_data['registration_step'] = 'name'
         return NAME
     elif query.data == 'agency':
-        await query.edit_message_text(text="You chose Agency. Please enter your full name:")
+        await query.edit_message_text(text="You chose Agency.")
+        await query.message.reply_text("Welcome to SG Part Timers & Talents’ telegram group job poster! We will resolve all your hiring needs, with past credentials of 99.5% hired, database of 45,000 job seekers, talents, influencers, cosplayers, models, emcees, DJs.\n\nIn here, we use the currency token to post jobs & shortlists talents.\nPlease check out our packages to post a job!")
+        await query.message.reply_text("Please enter your full name:")
         context.user_data['registration_step'] = 'full_name'
         return FULL_NAME
 
 # Define the functions for each step
+def is_valid_date(date_str: str) -> bool:
+    try:
+        datetime.strptime(date_str, '%Y-%m-%d')
+        return True
+    except ValueError:
+        return False
+
 async def ask_for_dob(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("Entered ask_for_dob")
-    context.user_data['name'] = update.message.text
-    await update.message.reply_text('Please enter your date of birth (YYYY-MM-DD):')
-    context.user_data['registration_step'] = 'dob'
-    return DOB
 
+    if context.user_data['registration_step'] == 'name':
+        context.user_data['name'] = update.message.text
+        await update.message.reply_text('Please enter your date of birth (YYYY-MM-DD):')
+        context.user_data['registration_step'] = 'dob'
+        return DOB
+
+    return await validate_dob(update, context)
+
+async def validate_dob(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info("Entered validate_dob")
+    dob = update.message.text
+    logger.info("Before validation function")
+    if is_valid_date(dob):
+        logger.info("DOB is valid")
+        context.user_data['dob'] = dob
+        return await ask_for_lang(update, context)
+    else:
+        logger.info("Invalid DOB format")
+        await update.message.reply_text('Invalid date format. Please enter your date of birth in the format YYYY-MM-DD:')
+        return DOB
+
+
+async def ask_for_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info("Entered ask_for_lang")
+    context.user_data['dob'] = update.message.text
+    await update.message.reply_text('Please enter the languages you speak:')
+    context.user_data['registration_step'] = 'lang_spoken'
+    return LANGUAGES_SPOKEN
 
 async def ask_for_past_experiences(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("Entered ask_for_past_experiences")
-    context.user_data['dob'] = update.message.text
+    context.user_data['lang_spoken'] = update.message.text
     await update.message.reply_text('Please enter your past experiences to improve chances of getting shortlisted:')
     context.user_data['registration_step'] = 'past_experiences'
     return PAST_EXPERIENCES
@@ -331,7 +361,8 @@ async def ask_for_citizenship(update: Update, context: ContextTypes.DEFAULT_TYPE
     keyboard = [
         [InlineKeyboardButton("Singaporean", callback_data='Singaporean')],
         [InlineKeyboardButton("Permenant Resident(PR)", callback_data='Permenant Resident(PR)')],
-        [InlineKeyboardButton("Foreigner", callback_data='Foreigner')]
+        [InlineKeyboardButton("Student Pass", callback_data='Student Pass')],
+        [InlineKeyboardButton("Foreign Passport Holder", callback_data='Foreign Passport Holder')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -445,7 +476,7 @@ async def save_applicant(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     async with AsyncSessionLocal() as conn:
         await conn.execute(
             sqlalchemy.text(
-        f"INSERT INTO applicants (user_handle, chat_id, name, dob, past_exp, citizenship, race, gender, education, whatsapp_no) VALUES ('{context.user_data['user_handle']}','{context.user_data['chat_id']}', '{context.user_data['name']}', '{context.user_data['dob']}', '{context.user_data['past_experiences']}', '{context.user_data['citizenship']}', '{context.user_data['race']}', '{context.user_data['gender']}', '{context.user_data['highest_education']}', '{context.user_data['whatsapp_number']}')"
+        f"INSERT INTO applicants (user_handle, chat_id, name, dob, past_exp, citizenship, race, gender, education, lang_spoken, whatsapp_no) VALUES ('{context.user_data['user_handle']}','{context.user_data['chat_id']}', '{context.user_data['name']}', '{context.user_data['dob']}', '{context.user_data['past_experiences']}', '{context.user_data['citizenship']}', '{context.user_data['race']}', '{context.user_data['gender']}', '{context.user_data['highest_education']}', '{context.user_data['lang_spoken']}','{context.user_data['whatsapp_number']}')"
 
     )
         )
@@ -494,6 +525,8 @@ async def registration_text_handler(update: Update, context: ContextTypes.DEFAUL
         if step == 'name':
             return await ask_for_dob(update, context)
         elif step == 'dob':
+            return await ask_for_lang(update, context)
+        elif step == 'lang_spoken':
             return await ask_for_past_experiences(update, context)
         elif step == 'past_experiences':
             return await ask_for_citizenship(update, context)
@@ -516,6 +549,7 @@ async def registration_text_handler(update: Update, context: ContextTypes.DEFAUL
         
     logger.info("exited registration_text_handler")
     return ConversationHandler.END
+
     
 
 ###########################################################################################################################################################   
@@ -621,7 +655,8 @@ async def select_attribute(update: Update, context: CallbackContext) -> int:
             keyboard = [
                 [InlineKeyboardButton("Singaporean", callback_data='Singaporean')],
                 [InlineKeyboardButton("Permanent Resident(PR)", callback_data='Permanent Resident(PR)')],
-                [InlineKeyboardButton("Foreigner", callback_data='Foreigner')]
+                [InlineKeyboardButton("Student Pass", callback_data='Student Pass')],
+                [InlineKeyboardButton("Foreign Passport Holder", callback_data='Foreign Passport Holder')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text('Select Citizenship:', reply_markup=reply_markup)
@@ -742,14 +777,40 @@ async def job_repost(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     # Format profiles as inline buttons
-    keyboard = [
-        [InlineKeyboardButton(f"Job ID: {job[0]}", callback_data=f"jobrepost|{job[0]}")]
-        for job in previously_posted_jobs
-    ]
+    await update.message.reply_text('Select the job which you want to repost:')
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text('Select the job which you want to repost:', reply_markup=reply_markup)
+    for job in previously_posted_jobs:
+        job_post_id = job[0]
+        query_string = '''
+        SELECT EXISTS (
+        SELECT 1
+        FROM job_posts
+        WHERE id = :job_post_id AND status = 'approved')
+        '''
+        params = {"job_post_id": job_post_id}
+        results = await safe_get_db(query_string, params)
+        repost = results[0][0]
+
+        # Check if part time
+        query_string = '''
+        SELECT EXISTS (
+        SELECT 1
+        FROM job_posts
+        WHERE id = :job_post_id AND job_type = 'part')
+        '''
+        params = {"job_post_id": job_post_id}
+        results = await safe_get_db(query_string, params)
+        part_time = results[0][0]
+        message = await draft_job_post_message(job[0], repost=repost, part_time=part_time)
     
+        keyboard = [
+            [InlineKeyboardButton(f"Job ID: {job[0]}", callback_data=f"jobrepost|{job[0]}")]
+            # for job in previously_posted_jobs
+        ]
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(text=message,reply_markup=reply_markup, parse_mode='HTML')
+
     return SELECT_JOB_TO_REPOST
 
 async def jobrepost_button(update: Update, context: CallbackContext) -> int:
@@ -839,9 +900,54 @@ async def confirm_job_repost(update, context):
     else:
         return ConversationHandler.END
 
-SELECT_AGENCY, ENTER_JOB_DETAILS, CONFIRMATION_JOB_POST, ENTER_JOB_TYPE, ENTER_OTHER_REQ= range(5)
+###########################################################################################################################################################   
+# Job Posting fn
 
+SELECT_AGENCY, ENTER_JOB_DETAILS, CONFIRMATION_JOB_POST, ENTER_JOB_TYPE, ENTER_OTHER_REQ= range(5)
+#TODO change to chat_id instead of username
 # Function to start job posting
+async def post_a_job_button(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    chat_id = query.from_user.id
+    # Check if user has chat_id in /start
+    query_string = '''
+    SELECT EXISTS (
+    SELECT 1
+    FROM user_data
+    WHERE chat_id = :chat_id)
+    '''
+    params = {"chat_id": chat_id}
+    results = await safe_get_db(query_string, params)
+    previously_used = results[0][0]
+    if previously_used:
+        await context.bot.send_message(chat_id=chat_id, text="You can use the /jobpost command to create a job posting!\n\nPlease ensure you have an <b>agency</b> profile before doing so.\nYou can create one with the /register command!", parse_mode='HTML')
+    else:
+        message = '''
+        Welcome to SG Part Timers & Talents’ telegram group job poster! We will resolve all your hiring needs, with past credentials of 99.5% hired, database of 45,000 job seekers, talents, influencers, cosplayers, models, emcees, DJs.\n\n
+In here, we use the currency token to post jobs & shortlists talents
+Please check out our packages to post a job!'''
+        await context.bot.send_message(chat_id=chat_id, text=message)
+    await query.answer()
+    # # Below should be same/similar to job_post()
+    # query_string = "SELECT id, name, agency_name FROM agencies WHERE chat_id = :chat_id"
+    # params = {"chat_id": chat_id}
+    # agency_profiles = await safe_get_db(query_string, params)
+
+    # if not agency_profiles:
+    #     await context.bot.send_message(chat_id=chat_id, text='You have no agency profiles to post a job from.')
+    #     return ConversationHandler.END
+
+    # # Format profiles as inline buttons
+    # keyboard = [
+    #     [InlineKeyboardButton(f"{agency[1]} - {agency[2]}", callback_data=f"jobpost|{agency[0]}")]
+    #     for agency in agency_profiles
+    # ]
+
+    # reply_markup = InlineKeyboardMarkup(keyboard)
+    # await context.bot.send_message(chat_id=chat_id, text='Select the profile you want to use for job posting:', reply_markup=reply_markup)
+
+    # return SELECT_AGENCY
+
 async def job_post(update: Update, context: CallbackContext) -> int:
     user_handle = update.effective_user.username
 
@@ -872,9 +978,10 @@ async def job_post(update: Update, context: CallbackContext) -> int:
 
 # Callback function to handle profile selection for job posting
 async def jobpost_button(update: Update, context: CallbackContext) -> int:
+    logger.info("jobpost_button pressed")
     query = update.callback_query
+    logger.info("jobpost button:" + query.data)
     await query.answer()
-
     context.user_data['agency_id'] = query.data.split('|')[1]
      # Ask for job type
     keyboard = [
@@ -1056,24 +1163,42 @@ async def jobpost_text_handler(update: Update, context: CallbackContext) -> int:
 
         if step == 'job_title':
             context.user_data['jobpost_job_title'] = text
-            await update.message.reply_text('Please specify the Company or Industry this job belongs to:')
-            context.user_data['jobpost_step'] = 'company_industry'
+            await update.message.reply_text('Please specify the Company this job belongs to:')
+            context.user_data['jobpost_step'] = 'company'
             return ENTER_JOB_DETAILS
 
-        elif step == 'company_industry':
-            context.user_data['jobpost_company_industry'] = text
-            await update.message.reply_text('Please provide the Date and Time for this job opportunity:')
-            context.user_data['jobpost_step'] = 'date_time'
+        elif step == 'company':
+            context.user_data['jobpost_company'] = text
+            await update.message.reply_text('Please provide the Industry for this job:')
+            context.user_data['jobpost_step'] = 'industry'
             return ENTER_JOB_DETAILS
 
-        elif step == 'date_time':
-            context.user_data['jobpost_date_time'] = text
-            await update.message.reply_text('Please state the Pay Rate for this job:')
-            context.user_data['jobpost_step'] = 'pay_rate'
+        elif step == 'industry':
+            context.user_data['jobpost_industry'] = text
+            await update.message.reply_text('Please provide the Date(s) for this job opportunity:')
+            context.user_data['jobpost_step'] = 'date'
             return ENTER_JOB_DETAILS
 
-        elif step == 'pay_rate':
-            context.user_data['jobpost_pay_rate'] = text
+        elif step == 'date':
+            context.user_data['jobpost_date'] = text
+            await update.message.reply_text('Please provide the Time for this job opportunity:')
+            context.user_data['jobpost_step'] = 'time'
+            return ENTER_JOB_DETAILS
+
+        elif step == 'time':
+            context.user_data['jobpost_time'] = text
+            await update.message.reply_text('Please state the Basic Salary for this job:')
+            context.user_data['jobpost_step'] = 'salary'
+            return ENTER_JOB_DETAILS
+        
+        elif step == 'salary':
+            context.user_data['jobpost_basic_salary'] = text
+            await update.message.reply_text('Please state the Commissions and Targets for this job:')
+            context.user_data['jobpost_step'] = 'commission'
+            return ENTER_JOB_DETAILS
+
+        elif step == 'commission':
+            context.user_data['jobpost_commission'] = text
             await update.message.reply_text('Please describe the Job Scope and responsibilities:')
             context.user_data['jobpost_step'] = 'job_scope'
             return ENTER_JOB_DETAILS
@@ -1183,9 +1308,9 @@ async def draft_job_post_message(job_id, repost=False, part_time=False) -> str:
         str: Message to be approved by admin
     """    
     # Fetch job details from db
-    query_string = f"SELECT agency_id, job_title, company_industry, date_time, pay_rate, job_scope, other_req, job_type FROM job_posts WHERE id = '{job_id}'"
+    query_string = f"SELECT agency_id, job_type, company_name, industry, job_title, date, time, basic_salary, commissions, job_scope, other_req FROM job_posts WHERE id = '{job_id}'"
     results = await get_db(query_string)
-    agency_id, job_title, company_industry, date_time, pay_rate, job_scope, other_req, job_type= results[0]
+    agency_id, job_type, company_name, industry, job_title, date, time, basic_salary, commissions, job_scope, other_req= results[0]
     # Fetch agency details from agency_id
     query_string = f"SELECT user_handle, chat_id, name, agency_name, agency_uen FROM agencies WHERE id = '{agency_id}'"
     results = await get_db(query_string)
@@ -1206,11 +1331,14 @@ async def draft_job_post_message(job_id, repost=False, part_time=False) -> str:
 
     message = f'''
 <b><u>Job Post [ID: {job_id}]</u></b>\n{tag}\n
-<b>👨🏻‍💻 Agency</b>:\n{agency_name}\n\n
-<b>🏢Industry</b>:\n{company_industry}\n\n
-<b>👨‍💼Job Title</b>:\n{job_title}\n\n
-<b>🤑Salary</b>:\n{pay_rate}\n\n
-<b>😓Job Scope</b>:\n{job_scope}\n\n
+<b>Company Name</b>:\n{company_name}\n
+<b>Industry</b>:\n{industry}\n
+<b>Job Title</b>:\n{job_title}\n\n
+<b>Date</b>:\n{date}\n
+<b>Time</b>:\n{time}\n
+<b>Basic Salary</b>:\n{basic_salary}\n
+<b>Commissions & Targets</b>:\n{commissions}\n
+<b>Job Scope</b>:\n{job_scope}\n
 '''
     if repost:
         message = repost_prefix + message
@@ -1231,6 +1359,8 @@ async def post_job_in_channel(update: Update, context: ContextTypes.DEFAULT_TYPE
     keyboard = []
     apply_button = [InlineKeyboardButton("Apply", callback_data=f"apply_{job_post_id}")]
     keyboard.append(apply_button)
+    post_a_job_button = [InlineKeyboardButton("Post a Job", callback_data="post_a_job")]
+    keyboard.append(post_a_job_button)
     reply_markup = InlineKeyboardMarkup(keyboard)
     await context.bot.send_message(chat_id=CHANNEL_ID, text=message, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
 
@@ -1286,12 +1416,11 @@ async def save_jobpost(user_data): #TODO add status
     '''
     Saves job in DB and returns ID of new entry
     '''
-    logger.info(f"QUERY: INSERT INTO job_posts (agency_id, job_title, company_industry, date_time, pay_rate, job_scope, shortlist) VALUES ('{user_data['agency_id']}', '{user_data['jobpost_job_title']}', '{user_data['jobpost_company_industry']}', '{user_data['jobpost_date_time']}', '{user_data['jobpost_pay_rate']}', '{user_data['jobpost_job_scope']}', '0')"
-)
+    # logger.info(f"QUERY: INSERT INTO job_posts (agency_id, job_title, company_industry, date_time, pay_rate, job_scope, shortlist) VALUES ('{user_data['agency_id']}', '{user_data['jobpost_job_title']}', '{user_data['jobpost_company_industry']}', '{user_data['jobpost_date_time']}', '{user_data['jobpost_pay_rate']}', '{user_data['jobpost_job_scope']}', '0')")
     async with AsyncSessionLocal() as conn:
         result = await conn.execute(
             sqlalchemy.text(
-        f"INSERT INTO job_posts (agency_id, job_type, job_title, company_industry, date_time, pay_rate, job_scope, other_req, shortlist) VALUES ('{user_data['agency_id']}','{user_data['jobpost_job_type']}', '{user_data['jobpost_job_title']}', '{user_data['jobpost_company_industry']}', '{user_data['jobpost_date_time']}', '{user_data['jobpost_pay_rate']}', '{user_data['jobpost_job_scope']}','{user_data['jobpost_other_req']}', '0')"
+        f"INSERT INTO job_posts (agency_id, job_type, company_name, industry, job_title, date, time, basic_salary, commissions, job_scope, other_req, shortlist) VALUES ('{user_data['agency_id']}','{user_data['jobpost_job_type']}', '{user_data['jobpost_company']}', '{user_data['jobpost_industry']}', '{user_data['jobpost_job_title']}', '{user_data['jobpost_date']}', '{user_data['jobpost_time']}','{user_data['jobpost_basic_salary']}' ,'{user_data['jobpost_commission']}','{user_data['jobpost_job_scope']}','{user_data['jobpost_other_req']}', '0')"
     )
         )
         await conn.commit()
@@ -1303,6 +1432,7 @@ async def save_jobpost(user_data): #TODO add status
 # Purchasing shortlists
 
 CHECK_BALANCE, CHOOSE_AMOUNT, CONFIRM_PURCHASE = range(3)
+
 
 # Function to handle /purchase_shortlists command
 async def purchase_shortlists(update: Update, context: CallbackContext) -> int:
@@ -1331,7 +1461,7 @@ async def purchase_shortlists(update: Update, context: CallbackContext) -> int:
             await update.message.reply_text(
                 message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchasetokens.", parse_mode='HTML'
             )
-        if update.callback_query.message:
+        if update.callback_query:
             await update.callback_query.message.reply_text(
                 message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchasetokens.", parse_mode='HTML'
             )
@@ -1343,10 +1473,14 @@ async def purchase_shortlists(update: Update, context: CallbackContext) -> int:
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nHow many shortlists would you like to buy? Please enter a multiple of 3.", parse_mode='HTML', reply_markup=reply_markup
-    )
-    
+    if update.message:
+        await update.message.reply_text(
+            message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nHow many shortlists would you like to buy? Please enter a multiple of 3.", parse_mode='HTML', reply_markup=reply_markup
+        )
+    if  update.callback_query:
+        await update.callback_query.message.reply_text(
+            message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nHow many shortlists would you like to buy? Please enter a multiple of 3.", parse_mode='HTML', reply_markup=reply_markup
+        )
     return CHOOSE_AMOUNT
 
 # Function to handle the amount choice and move to confirmation
@@ -1453,7 +1587,7 @@ async def shortlist_cancel(update: Update, context: CallbackContext) -> int:
 
 ###########################################################################################################################################################   
 # Shortlisting function
-SELECT_JOB, SHOW_APPLICANTS, DONE = range(3)
+SELECT_JOB, SHOW_APPLICANTS, DONE, PURCHASE_SHORTLISTS, CHOOSE_AMOUNT, CONFIRM_PURCHASE  = range(6)
 
 # Function to start the shortlisting process
 async def shortlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1472,7 +1606,7 @@ async def shortlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     agency_ids = [row[0] for row in agency_ids]
 
     # Retrieve job titles and industries for the agency_id(s) from the job_posts table
-    query = "SELECT id, job_title, company_industry FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
+    query = "SELECT id, job_title, company_name FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
     job_posts = await safe_get_db(query, {"agency_ids": tuple(agency_ids)})
 
     if not job_posts:
@@ -1526,7 +1660,7 @@ async def select_job(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         agency_ids = [row[0] for row in agency_ids]
 
         # Retrieve job titles and industries for the agency_id(s) from the job_posts table
-        query = "SELECT id, job_title, company_industry FROM job_posts WHERE agency_id IN :agency_ids"
+        query = "SELECT id, job_title, company_name FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
         job_posts = await safe_get_db(query, {"agency_ids": tuple(agency_ids)})
 
         if not job_posts:
@@ -1548,7 +1682,7 @@ async def select_job(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['selected_job_id'] = job_id
 
     # Retrieve the selected job title and company industry
-    query = "SELECT job_title, company_industry FROM job_posts WHERE id = :job_id"
+    query = "SELECT job_title, company_name FROM job_posts WHERE id = :job_id"
     job = await safe_get_db(query, {"job_id": job_id})
 
     if not job:
@@ -1577,15 +1711,16 @@ async def select_job(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Retrieve applicant details for each applicant_id
     for i, applicant_id in enumerate(applicant_ids, start=1):
         query = (
-            "SELECT dob, past_exp, citizenship, race, gender, education "
+            "SELECT dob, past_exp, citizenship, race, gender, education,lang_spoken "
             "FROM applicants WHERE id = :applicant_id"
         )
         applicant = await safe_get_db(query, {"applicant_id": applicant_id})
         if applicant:
-            dob, past_exp, citizenship, race, gender, education = applicant[0]
+            dob, past_exp, citizenship, race, gender, education, lang_spoken = applicant[0]
             applicant_details = (
                 f"<b>Applicant {i}</b>\n\n"
                 f"<b>DOB:</b> {dob}\n"
+                f"<b>Languages Spoken:</b> {lang_spoken}\n"
                 f"<b>Past Experiences:</b> {past_exp}\n"
                 f"<b>Citizenship:</b> {citizenship}\n"
                 f"<b>Race:</b> {race}\n"
@@ -1601,10 +1736,14 @@ async def select_job(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             # Initialize reply_markup with default empty state
             keyboard = []
             reply_markup = InlineKeyboardMarkup(keyboard)
-            shortlists = context.user_data.get('shortlists')
+            shortlists = context.user_data.get('shortlists',0)
+            # Add Shortlist button if shortlists are available
+            
             # Add Shortlist button if shortlists are available
             if shortlists > 0:
                 keyboard.append([InlineKeyboardButton("Shortlist", callback_data=f"shortlist|{applicant_id}")])
+            else:
+                keyboard.append([InlineKeyboardButton("No Shortlists Available", callback_data="no_shortlists")])
 
             # Add Done button
             keyboard.append([InlineKeyboardButton("Done", callback_data="done")])
@@ -1616,6 +1755,164 @@ async def select_job(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await callback_query.message.reply_text(applicant_details, reply_markup=reply_markup, parse_mode='HTML')
 
     return SHOW_APPLICANTS
+
+# Function to handle no_shortlists callback and redirect to purchase_shortlists_handler
+async def handle_no_shortlists(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info("No shortlists available, redirecting to purchase_shortlists")
+    await update.callback_query.answer()  # Acknowledge the callback query
+    await update.callback_query.message.reply_text(
+        "You have no more shortlists available! Please purchase shortlists to continue."
+    )
+    
+    logger.info("Entered purchase_shortlists function")
+    chat_id = update.effective_chat.id
+
+    # Retrieve tokens and shortlists balance from the database
+    query_tokens = "SELECT tokens FROM token_balance WHERE chat_id = :chat_id"
+    tokens_result = await safe_get_db(query_tokens, {"chat_id": chat_id})
+    tokens = tokens_result[0][0] if tokens_result else 0
+
+    query_shortlists = "SELECT shortlist FROM shortlist_balance WHERE chat_id = :chat_id"
+    shortlists_result = await safe_get_db(query_shortlists, {"chat_id": chat_id})
+    
+    # Check if entry for chat_id in shortlist_balance table
+    context.user_data['entry_present'] = 1 if shortlists_result else 0
+
+    # Set shortlist number to 0 if no entry present in shortlist_balance table
+    shortlists = shortlists_result[0][0] if shortlists_result else 0
+
+    # Display current balances to the user
+    message = f"You currently have:\n{tokens} tokens\n{shortlists} shortlists"
+
+    if tokens < 5:
+        if update.message:
+            await update.message.reply_text(
+                message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchasetokens.", parse_mode='HTML'
+            )
+        if update.callback_query:
+            await update.callback_query.message.reply_text(
+                message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchasetokens.", parse_mode='HTML'
+            )
+        return ConversationHandler.END
+
+    # Ask user how many shortlists they want to buy
+    keyboard = [
+        [InlineKeyboardButton("Cancel", callback_data="shortlist_cancel_purchase")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if update.message:
+        await update.message.reply_text(
+            message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nHow many shortlists would you like to buy? Please enter a multiple of 3.", parse_mode='HTML', reply_markup=reply_markup
+        )
+    if  update.callback_query:
+        await update.callback_query.message.reply_text(
+            message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nHow many shortlists would you like to buy? Please enter a multiple of 3.", parse_mode='HTML', reply_markup=reply_markup
+        )
+    return CHOOSE_AMOUNT
+
+# Function to handle the amount choice and move to confirmation
+async def handle_amount_choice(update: Update, context: CallbackContext) -> int:
+    logger.info("Entered handle_amount_choice function")
+    chat_id = update.effective_chat.id
+
+    # Retrieve the number of shortlists the user wants to buy
+    try:
+        num_shortlists = int(update.message.text)
+    except ValueError:
+        await update.message.reply_text("Please enter a valid number.")
+        return CHOOSE_AMOUNT
+
+    if num_shortlists <= 0 or num_shortlists % 3 != 0:
+        await update.message.reply_text("Please enter a valid number that is a multiple of 3.")
+        return CHOOSE_AMOUNT
+
+    tokens_required = (num_shortlists // 3) * 5
+
+    # Retrieve current tokens balance
+    query_tokens = "SELECT tokens FROM token_balance WHERE chat_id = :chat_id"
+    tokens_result = await safe_get_db(query_tokens, {"chat_id": chat_id})
+    tokens = tokens_result[0][0] if tokens_result else 0
+
+    if tokens < tokens_required:
+        await update.message.reply_text(
+            "Insufficient tokens. Please purchase more tokens at /purchasetokens."
+        )
+        return ConversationHandler.END
+
+    # Store purchase details in user_data
+    context.user_data['num_shortlists'] = num_shortlists
+    context.user_data['tokens_required'] = tokens_required
+
+    # Create a confirmation button
+    keyboard = [
+        [InlineKeyboardButton("Confirm Purchase", callback_data="confirm_purchase")],
+        [InlineKeyboardButton("Cancel", callback_data="shortlist_cancel_purchase")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # Send the confirmation message
+    await update.message.reply_text(
+        f"You are about to purchase {num_shortlists} shortlists for {tokens_required} tokens.\n\n"
+        f"Do you want to proceed?",
+        reply_markup=reply_markup
+    )
+
+    return CONFIRM_PURCHASE
+
+# Function to handle the purchase confirmation
+async def confirm_purchase(update: Update, context: CallbackContext) -> int:
+    logger.info("Entered confirm_purchase function")
+    chat_id = update.effective_chat.id
+
+    # Retrieve the number of shortlists and tokens required from user_data
+    num_shortlists = context.user_data.get('num_shortlists')
+    tokens_required = context.user_data.get('tokens_required')
+
+    if not num_shortlists or not tokens_required:
+        await update.callback_query.message.edit_text("Something went wrong. Please try again.")
+        return ConversationHandler.END
+
+    # Update the token_balance and shortlist_balance tables
+    update_tokens_query = "UPDATE token_balance SET tokens = tokens - :tokens_required WHERE chat_id = :chat_id"
+    await safe_set_db(update_tokens_query, {"tokens_required": tokens_required, "chat_id": chat_id})
+
+    # If have a chat_id entry in the shortlist_balance table, update value
+    if context.user_data['entry_present']:
+        update_shortlists_query = "UPDATE shortlist_balance SET shortlist = shortlist + :new_shortlists WHERE chat_id = :chat_id"
+        await safe_set_db(update_shortlists_query, {"chat_id": chat_id, "new_shortlists": num_shortlists})
+    #Else, create new entry in the shortlist_balance table
+    else:
+        insert_shortlists_query = "INSERT INTO shortlist_balance (chat_id, shortlist) VALUES (:chat_id, :new_shortlists)"
+        await safe_set_db(insert_shortlists_query, {"chat_id": chat_id, "new_shortlists": num_shortlists})
+
+
+    # Retrieve updated balances
+    updated_tokens_result = await safe_get_db("SELECT tokens FROM token_balance WHERE chat_id = :chat_id", {"chat_id": chat_id})
+    updated_shortlists_result = await safe_get_db("SELECT shortlist FROM shortlist_balance WHERE chat_id = :chat_id", {"chat_id": chat_id})
+
+    updated_tokens = updated_tokens_result[0][0] if updated_tokens_result else 0
+    updated_shortlists = updated_shortlists_result[0][0] if updated_shortlists_result else 0
+
+    # Send confirmation message with updated balances
+    await update.callback_query.message.edit_text(
+        f"Purchase successful!\n\n"
+        f"You now have a total of <b>{updated_shortlists} shortlists</b>.\n"
+        f"You have <b>{updated_tokens} tokens</b> remaining.",
+        parse_mode='HTML'
+    )
+
+    return ConversationHandler.END
+
+# Function to handle cancellation
+async def shortlist_cancel(update: Update, context: CallbackContext) -> int:
+    logger.info("Entered cancel function")
+    callback_query = update.callback_query
+    logger.info(f"CALLBACK QUERY: {callback_query}")
+    await callback_query.answer()
+    await callback_query.message.edit_text("Shortlist purchasing canceled.")
+    return ConversationHandler.END
+
 
 # Function to handle applicant shortlisting
 async def shortlist_applicant(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1629,7 +1926,6 @@ async def shortlist_applicant(update: Update, context: ContextTypes.DEFAULT_TYPE
     job_id = context.user_data.get('selected_job_id')
     chat_id = context.user_data.get('chat_id')  # Ensure chat_id is available
     logger.info(f"CHAT ID: {chat_id}")
-
 
     if not job_id:
         await callback_query.message.reply_text("No job selected. Please select a job first.")
@@ -1677,7 +1973,7 @@ async def shortlist_applicant(update: Update, context: ContextTypes.DEFAULT_TYPE
     # If no more applicants, end the conversation
     else:
         await callback_query.message.edit_text(
-            "All applicants have been shortlisted.\n\n"
+            f"All applicants have been shortlisted.\n\nYou have {remaining_shortlists} shortlists left. "
         )
         return ConversationHandler.END
 
@@ -1724,7 +2020,7 @@ async def view_shortlisted(update: Update, context: CallbackContext) -> int:
     agency_ids = [row[0] for row in agency_ids]
 
     # Retrieve job titles and industries for the agency_id(s) from the job_posts table
-    query = "SELECT id, job_title, company_industry FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
+    query = "SELECT id, job_title, company_name FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
     jobs_result = await safe_get_db(query, {"agency_ids": tuple(agency_ids)})
 
     if not jobs_result:
@@ -1751,7 +2047,7 @@ async def view_applicants(update: Update, context: CallbackContext) -> int:
     context.user_data['selected_job_id'] = job_id
 
     # Retrieve the selected job title and company industry
-    query = "SELECT job_title, company_industry FROM job_posts WHERE id = :job_id"
+    query = "SELECT job_title, company_name FROM job_posts WHERE id = :job_id"
     job = await safe_get_db(query, {"job_id": job_id})
 
     if not job:
@@ -1778,17 +2074,18 @@ async def view_applicants(update: Update, context: CallbackContext) -> int:
     # Send applicant details
     for i, applicant_id in enumerate(applicant_ids, start=1):
         query_details = (
-            "SELECT user_handle, name, dob, past_exp, citizenship, race, gender, education, whatsapp_no "
+            "SELECT user_handle, name, dob, past_exp, citizenship, race, gender, education, lang_spoken, whatsapp_no "
             "FROM applicants WHERE id = :applicant_id"
         )
         details_result = await safe_get_db(query_details, {"applicant_id": applicant_id})
         if details_result:
-            user_handle, name, dob, past_exp, citizenship, race, gender, education, wa_number = details_result[0]
+            user_handle, name, dob, past_exp, citizenship, race, gender, education, lang_spoken, wa_number = details_result[0]
             await callback_query.message.reply_text(
                 f"<b>Applicant {i}</b>\n\n"
                 f"<b>User Handle:</b> @{user_handle}\n"
                 f"<b>Name:</b> {name}\n"
                 f"<b>DOB:</b> {dob}\n"
+                f"<b>Languages Spoken:</b> {lang_spoken}\n"
                 f"<b>Past Experience:</b> {past_exp}\n"
                 f"<b>Citizenship:</b> {citizenship}\n"
                 f"<b>Race:</b> {race}\n"
@@ -2341,6 +2638,25 @@ async def purchaseSubscription(update: Update, context: ContextTypes.DEFAULT_TYP
     Returns:
         int: returns new state for convo handler
     """    
+    chat_id = update.effective_chat.id
+    # Check if chat_id is already in an active subscription plan
+    query_string = '''
+    SELECT EXISTS (
+    SELECT 1
+    FROM subscription_balance
+    WHERE chat_id = :chat_id AND status = 'active')
+    '''
+    params = {"chat_id": chat_id}
+    results = await safe_get_db(query_string, params)
+    already_subscribed = results[0][0]
+    if already_subscribed:
+        # Get current plan details from subscription_balance
+        query_string = "SELECT end_date FROM subscription_balance WHERE chat_id = :chat_id AND status = 'active' ORDER BY end_date DESC LIMIT 1"
+        params = {"chat_id": chat_id}
+        results = await safe_get_db(query_string, params)
+        end_date = results[0][0]
+        await update.message.reply_text(f"You are already in an active subscription plan which ends on {end_date}.\nAny new subscription plans will only begin after the current one has run out.")
+
     # Retrieve token packages from the database
     context.user_data['chat_id'] = update.effective_chat.id
     async with AsyncSessionLocal() as conn:
@@ -2373,7 +2689,9 @@ async def purchaseSubscription(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def subscription_selection(update: Update, context: CallbackContext) -> int:
     """
-     Saves chosen subscription in context.user_data['selected_subscription_id']
+    Saves chosen subscription in context.user_data['selected_subscription_id']
+    If user is already in active sub, it will extend the sub 
+
 
     Args:
         update (Update): _description_
@@ -2398,8 +2716,13 @@ async def subscription_selection(update: Update, context: CallbackContext) -> in
     already_subscribed = results[0][0]
     
     if already_subscribed:
-        await query.edit_message_text("You are already in an active subscription plan.\nPlease wait for that to end before purchasing a new one.")
-        return ConversationHandler.END
+        # Get current plan details from subscription_balance
+        query_string = "SELECT end_date FROM subscription_balance WHERE chat_id = :chat_id AND status = 'active'"
+        params = {"chat_id": chat_id}
+        results = await safe_get_db(query_string, params)
+        end_date = results[0][0]
+        # await query.edit_message_text(f"You are already in an active subscription plan which ends on {end_date}.\nAny new subscription plans will only begin after the current one has run out.")
+        # return ConversationHandler.END
     # Store the selected package_id in the user context
     context.user_data['selected_package_id'] = subpkg_id
 
@@ -2562,19 +2885,24 @@ async def forward_to_admin_for_acknowledgement(update: Update, context: ContextT
             [InlineKeyboardButton("Reject", callback_data=ss_reject_callback_data)]
         ] # Can check transaction ID if need details
         reply_markup = InlineKeyboardMarkup(keyboard)
+        # Get user handle from chat id
+        query_string = "SELECT user_handle FROM user_data WHERE chat_id = :chat_id"
+        params = {"chat_id": chat_id}
+        results = await safe_get_db(query_string, params)
+        user_handle = results[0][0]
         if isSubscription:
             # Get sub package details
             query_string = "SELECT sub_name, number_of_tokens, duration_months, price FROM subscription_packages WHERE subpkg_code = :subpkg_code"
             params = {"subpkg_code": package_id}
             results = await safe_get_db(query_string, params)
             sub_name, tokens_per_month, duration_months, price = results[0]
-            caption = f"Dear Admin, ${price} purchase made by {chat_id} for Subscription package ID {package_id}: {sub_name}\nThey will be allocated {tokens_per_month}tokens for {duration_months}months."
+            caption = f"Dear Admin, {user_handle} wants to purchase the Subscription Package ID {package_id}: {sub_name} for ${price}\nThey will be allocated {tokens_per_month} tokens for {duration_months} months."
         else:
             query_string = "SELECT package_name, number_of_tokens, price, validity FROM token_packages WHERE package_id = :package_id"
             params = {"package_id": package_id}
             results = await safe_get_db(query_string, params)
             package_name, number_of_tokens, price, validity = results[0]
-            caption = f"Dear Admin, ${price} purchase made by {chat_id} for Package ID {package_id}: {package_name}"
+            caption = f"Dear Admin, {user_handle} wants to purchase the Subscription Package ID {package_id}: {package_name} for ${price}"
         await context.bot.send_photo(
             chat_id=ADMIN_CHAT_ID,
             photo=photo,
@@ -2596,6 +2924,7 @@ async def forward_to_admin_for_acknowledgement(update: Update, context: ContextT
             [InlineKeyboardButton("Reject", callback_data=jp_reject_callback_data)]
         ] # Can check transaction ID if need details
         reply_markup = InlineKeyboardMarkup(keyboard)
+        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text="There is a new job posting pending your approval:")
         await context.bot.send_message(
             chat_id=ADMIN_CHAT_ID,
             text=message,
@@ -2637,10 +2966,10 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
     logger.info(f'Callback query data: {query.data}')
     query_data = query.data
     # Check which query data it is (which button admin pressed)
-    if query_data.startswith('sp_'):
-        logger.info("Subscription package query found")
-        # Getting admin response as well as transaction ID
-        status, transaction_id = query_data.split('_')[1:]
+    # if query_data.startswith('sp_'):
+    #     logger.info("Subscription package query found")
+    #     # Getting admin response as well as transaction ID
+    #     status, transaction_id = query_data.split('_')[1:]
 
 
     if query_data.startswith('ss_'): 
@@ -2672,12 +3001,31 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
                 exp_date = exp_date.date()
                 await query.answer()  # Acknowledge the callback query to remove the loading state
             elif isSubscription:
+                # Check if has existing subs
+                chat_id = update.effective_chat.id
+                # Check if chat_id is already in an active subscription plan
+                query_string = '''
+                SELECT EXISTS (
+                SELECT 1
+                FROM subscription_balance
+                WHERE chat_id = :chat_id AND status = 'active')
+                '''
+                params = {"chat_id": chat_id}
+                results = await safe_get_db(query_string, params)
+                already_subscribed = results[0][0]
+                if already_subscribed:
+                    await add_active_subscription(chat_id, package_id)
+                    await query.edit_message_caption(caption="You have approved the payment.\n\nCredits have been transferred.")
+                    await context.bot.send_message(chat_id=chat_id, text="Your payment has been acknowledged by an admin!")
+                    return
+
+                else:
                 # Top up once and top up every month
-                (new_balance, exp_date) = await update_balance_subscription(chat_id, package_id)
-                await add_active_subscription(chat_id, package_id)
+                    (new_balance, exp_date) = await update_balance_subscription(chat_id, package_id)
+                    await add_active_subscription(chat_id, package_id)
             
             # Edit the caption of the photo message
-            await query.edit_message_caption(caption="You have acknowledged the screenshot.\n\nCredits have been transferred.")
+            await query.edit_message_caption(caption="You have approved the payment.\n\nCredits have been transferred.")
             
             # Notify the user
             await context.bot.send_message(chat_id=chat_id, text=f"Your payment has been acknowledged by an admin!.\n\nYour new token balance is: {new_balance}\nExpiring on: {exp_date}")
@@ -2694,7 +3042,7 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
             await query.edit_message_caption(caption="You have rejected the screenshot.\n\nUser will be notified")
             
             # Notify the user
-            await context.bot.send_message(chat_id=chat_id, text="Your payment has been rejected by an admin. Please PM admin for more details")
+            await context.bot.send_message(chat_id=chat_id, text="Your payment has been rejected by an admin. Please PM @jojoweipop for more details")
 
     elif query_data.startswith('jp_'): 
         logger.info("JP query found")
@@ -2811,9 +3159,9 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
             
             # Notify the user
             if repost:
-                text = "Your repost has been rejected by an admin. Please PM admin for more details"
+                text = "Your repost has been rejected by an admin. Please PM @jojoweipop for more details"
             else:
-                text = "Your posting has been rejected by an admin. Please PM admin for more details"
+                text = "Your posting has been rejected by an admin. Please PM @jojoweipop for more details"
             await context.bot.send_message(chat_id=chat_id, text=text)
 
 async def add_active_subscription(chat_id, package_id):
@@ -2822,7 +3170,7 @@ async def add_active_subscription(chat_id, package_id):
     '''
     # Checks if it is a subscription package
     if 's' in package_id:
-        isSubscription = True
+        pass
     else:
         raise Exception("Package is not a subscription")
     # Get subs package details
@@ -2832,11 +3180,31 @@ async def add_active_subscription(chat_id, package_id):
     package_details = results[0]
     sub_name, tokens_per_month, duration_months, price = package_details
     curr_date = datetime.now().date()
-
+    # Check if has existing subscription
+    query_string = """
+    SELECT EXISTS (
+        SELECT 1
+        FROM subscription_balance
+        WHERE chat_id = :chat_id
+        AND status = 'active'
+    ) AS entry_exists;
+    """
+    params = {"chat_id": chat_id}
+    results = await safe_get_db(query_string, params)
+    have_existing_sub = results[0][0]
+    if have_existing_sub:
+        # Find the last date for existing subs
+        query_string = "SELECT end_date FROM subscription_balance WHERE chat_id = :chat_id AND status = 'active' ORDER BY end_date DESC LIMIT 1"
+        params = {"chat_id": chat_id}
+        results = await safe_get_db(query_string, params)
+        current_end_date = results[0][0]
+        # Set start date of new sub to the day after current end date
+        start_date = current_end_date + relativedelta(days=1)
+    else:
+        start_date = curr_date
     # Create new entry
     query_string = "INSERT INTO subscription_balance (chat_id, start_date, end_date, last_distribution, status, subpkg_id) VALUES (:chat_id, :start_date, :end_date, :last_distribution, :status, :subpkg_id)"
-    start_date = curr_date
-    end_date = curr_date + relativedelta(months=duration_months)
+    end_date = start_date + relativedelta(months=duration_months)
     last_distribution = curr_date
     status = 'active'
     params = {
@@ -2973,7 +3341,7 @@ async def view_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE):
         results = await get_db(query_string)
         curr_tokens, curr_exp_date = results[0]
         # Notify user
-        await update.message.reply_text(text=f"You have {curr_tokens} tokens expiring on {curr_exp_date}.")
+        await update.message.reply_text(text=f"You have {curr_tokens} tokens expiring on {curr_exp_date.date()}.")
 
     else: 
         await update.message.reply_text(text="You have no tokens available.")
@@ -3049,16 +3417,23 @@ async def daily_checks(bot):
             query_string = f"DELETE from token_balance WHERE chat_id = '{chat_id}'"
             await set_db(query_string)
             logger.info(f"Removed {expiring_tokens} expired tokens from {chat_id} account")
-            # notify users that their credits have expired
+            # Get tele handle from chat_id
+            query_string = "SELECT user_handle FROM user_data WHERE chat_id = :chat_id"
+            params = {"chat_id": chat_id}
+            results = await safe_get_db(query_string, params)
+            user_handle = results[0][0]
+
+            # notify users that their credits have expired (send to admin as well)
             await bot.send_message(chat_id=chat_id, text=f"{expiring_tokens} tokens have expired today!\n\nTo purchase more tokens, please use the /purchasetokens command!")
+            await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"{expiring_tokens} tokens has expired from {user_handle}'s account.") #TODO test this
     except Exception as e:
         logger.info(e)
     # check active subscriptions
     try:
         # get active subscriptions
-        now = datetime.now().date()
+        now = datetime.now()
 
-        query_string = "SELECT id, chat_id, end_date, last_distribution, subpkg_id FROM subscription_balance WHERE status = :status"
+        query_string = "SELECT id, chat_id, start_date, end_date, last_distribution, subpkg_id FROM subscription_balance WHERE status = :status"
         params = {"status": 'active'}
         active_subs = await safe_get_db(query_string, params)
         # chat_id, end_date, last_distribution, subpkg_id = active_subs
@@ -3066,7 +3441,7 @@ async def daily_checks(bot):
 
 
 
-        for sub_balance_id, chat_id, end_date, last_distribution, subpkg_id in active_subs:
+        for sub_balance_id, chat_id, start_date, end_date, last_distribution, subpkg_id in active_subs:
             # if expired
             if now >= end_date:
                 # Set status to expired
@@ -3083,7 +3458,7 @@ async def daily_checks(bot):
             # Calculate the next distribution date
             next_distribution_date = last_distribution + relativedelta(months=1)
             
-            if (now >= next_distribution_date):
+            if (now >= next_distribution_date) and (now >= start_date):
                 # Set last distribution_date
                 query_string = "UPDATE subscription_balance SET last_distribution = :last_distribution WHERE id = :id"
                 params = {
@@ -3116,7 +3491,7 @@ async def daily_checks(bot):
                         new_date = curr_exp_date # Just for returning the expiry date, new_date is not used here
                     # Update db
                     await set_db(query_string)
-                    bot.send_message(chat_id=chat_id, text=f"{tokens_per_month} has been allocated to your account.\nYour have a new balance of {new_balance}, expiring on {new_date}.")
+                    await bot.send_message(chat_id=chat_id, text=f"{tokens_per_month} tokens have been allocated to your account.\nYour have a new balance of {new_balance}, expiring on {new_date}.")
 
                     # return new_balance, new_date
                 # If no existing entry, create new entry
@@ -3125,7 +3500,7 @@ async def daily_checks(bot):
                     query_string = f"INSERT INTO token_balance (chat_id, tokens, exp_date) VALUES ('{chat_id}', '{tokens_per_month}', '{new_date}')"
                     await set_db(query_string)
                     logger.info("Chat ID does not exist in token_balance table")
-                    bot.send_message(chat_id=chat_id, text=f"{tokens_per_month} has been allocated to your account.\nYour have a new balance of {tokens_per_month}, expiring on {new_date}.")
+                    await bot.send_message(chat_id=chat_id, text=f"{tokens_per_month} tokens have been allocated to your account.\nYour have a new balance of {tokens_per_month}, expiring on {new_date}.")
 
                     # return tokens_per_month, new_date
     except Exception as e:
@@ -3151,6 +3526,7 @@ async def main() -> None:
     # Here we set updater to None because we want our custom webhook server to handle the updates
     # and hence we don't need an Updater instance
     # await async_test_db()
+
     application = (
         Application.builder().token(BOT_TOKEN).updater(None).context_types(context_types).build()
     )
@@ -3158,7 +3534,7 @@ async def main() -> None:
     # Command handlers
     application.add_handler(CommandHandler('viewtokens', view_tokens))
     application.add_handler(CommandHandler('create_trans', create_transaction_entry))
-    application.add_handler(CommandHandler("start", start))
+    # application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help))
     # application.add_handler(CommandHandler("register", register))
     application.add_handler(CommandHandler("deleteprofile", delete_profile))
@@ -3182,38 +3558,31 @@ async def main() -> None:
 
     # Registration Convo Handler
     registration_conversation_handler = ConversationHandler(
-    entry_points=[CommandHandler('register', register)],
-    states={
-        NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
-        DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+        entry_points=[
+            CommandHandler('start', start),
+            CommandHandler('register', start)
+        ],
+        states={
+        NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_for_dob)],
+        DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, validate_dob)],
         PAST_EXPERIENCES: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
         CITIZENSHIP: [CallbackQueryHandler(citizenship_button)],
         RACE: [CallbackQueryHandler(race_button)],
         GENDER: [CallbackQueryHandler(gender_button)],
         HIGHEST_EDUCATION: [CallbackQueryHandler(highest_education_button)],
+        LANGUAGES_SPOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
         WHATSAPP_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
         FULL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
         COMPANY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
         COMPANY_UEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)]
     },
-    fallbacks=[CommandHandler('cancel', cancel)]
-)
+        fallbacks=[CommandHandler('cancel', cancel)])
+    
     application.add_handler(registration_conversation_handler)
 
 
 
-# # Edit profile convo handler
-#     edit_profile_handler = ConversationHandler(
-#         entry_points=[CommandHandler('editprofile', edit_profile)],
-#         states={
-#             SELECT_PROFILE: [CallbackQueryHandler(select_profile)],
-#             SELECT_ATTRIBUTE: [CallbackQueryHandler(select_attribute)],
-#             ENTER_NEW_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_new_value)],
-#         },
-#         fallbacks=[CommandHandler('cancel', cancel)]
-#     )
-#     application.add_handler(edit_profile_handler)
-
+    # Edit profile convo handler
     edit_profile_convo_handler = ConversationHandler(
         entry_points=[CommandHandler('editprofile', edit_profile)],
         states={
@@ -3222,18 +3591,22 @@ async def main() -> None:
             SELECT_ATTRIBUTE: [
                 CallbackQueryHandler(select_attribute, pattern='^edit_attribute\\|')],
             ENTER_NEW_VALUE: [
-                CallbackQueryHandler(enter_new_value, pattern='^(Singaporean|Permanent Resident\\(PR\\)|Foreigner|Chinese|Malay|Indian|Eurasian|Others|Male|Female|O-level Graduate|ITE Graduate|A-level Graduate|Diploma Graduate|Degree Graduate|Undergraduate|Studying in Poly/JC)$'),
+                CallbackQueryHandler(enter_new_value, pattern='^(Singaporean|Permanent Resident\\(PR\\)|Student Pass|Foreign Passport Holder|Chinese|Malay|Indian|Eurasian|Others|Male|Female|O-level Graduate|ITE Graduate|A-level Graduate|Diploma Graduate|Degree Graduate|Undergraduate|Studying in Poly/JC)$'),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, enter_new_value)]
         },
-        fallbacks=[CommandHandler('cancel', cancel)]
+    fallbacks=[CommandHandler('cancel', cancel)]
     )
     application.add_handler(edit_profile_convo_handler)
 
 
 # Job post convo handler
     job_post_handler = ConversationHandler(
-    entry_points=[CommandHandler('jobpost', job_post)],
+    entry_points=[
+        CommandHandler('jobpost', job_post), 
+        # CallbackQueryHandler(post_a_job_button, pattern='post_a_job')
+        ],
     states={
+        # SELECT_AGENCY: [CallbackQueryHandler(jobpost_button, pattern='^jobpost')],
         SELECT_AGENCY: [CallbackQueryHandler(jobpost_button)],
         ENTER_JOB_TYPE: [CallbackQueryHandler(job_type_selection, pattern='^job_type_')],
         ENTER_JOB_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, jobpost_text_handler)],
@@ -3336,6 +3709,7 @@ async def main() -> None:
     fallbacks=[CommandHandler('cancel', cancel)]
     )
     application.add_handler(purchase_subscription_handler)
+
 # Purchasing tokens convo handler
     purchase_tokens_handler = ConversationHandler(
     entry_points=[CommandHandler('purchasetokens', purchasetokens)],
@@ -3376,12 +3750,23 @@ async def main() -> None:
             ],
             SHOW_APPLICANTS: [
                 CallbackQueryHandler(shortlist_applicant, pattern='^shortlist\|'),
+                CallbackQueryHandler(handle_no_shortlists, pattern='^no_shortlists$'),
                 CallbackQueryHandler(done, pattern='^done$')
+            ],
+            CHOOSE_AMOUNT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount_choice),
+                CallbackQueryHandler(shortlist_cancel, pattern='^shortlist_cancel_purchase$')
+            ],
+            CONFIRM_PURCHASE: [
+                CallbackQueryHandler(confirm_purchase, pattern='^confirm_purchase$'),
+                CallbackQueryHandler(shortlist_cancel, pattern='^shortlist_cancel_purchase$')
             ]
         },
         fallbacks=[CommandHandler('cancel', cancel)]
     )
     application.add_handler(shortlist_handler)
+
+    
 
 # Viewing shortlisted applicants convo handler
     view_shortlisted_handler = ConversationHandler(
@@ -3403,6 +3788,7 @@ async def main() -> None:
     application.add_handler(CallbackQueryHandler(select_applicant_apply, pattern="^ja_\d+_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
     application.add_handler(CallbackQueryHandler(apply_button_handler, pattern='^apply_\d+$'))
     application.add_handler(CallbackQueryHandler(view_button_handler, pattern='^view_(agency|applicant)_(.+)$'))
+    application.add_handler(CallbackQueryHandler(post_a_job_button, pattern="post_a_job"))
 
     # Message Handler
     ## NIL ##
@@ -3463,7 +3849,7 @@ async def main() -> None:
         )
     )
     loop = asyncio.get_event_loop()
-    schedule.every().day.at("00:00").do(lambda: asyncio.run_coroutine_threadsafe(daily_checks(application.bot), loop))
+    schedule.every().day.at("19:02").do(lambda: asyncio.run_coroutine_threadsafe(daily_checks(application.bot), loop))
 
     # Create the asyncio task for running the schedule
     schedule_task = loop.create_task(run_schedule())
