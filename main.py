@@ -3396,7 +3396,7 @@ async def global_error_handler(update, context):
     traceback.print_exc()
 
     # Optionally, notify the developer or admin
-    await context.bot.send_message(chat_id=CHANNEL_ID, text=f"An error occurred: {context.error}")
+    # await context.bot.send_message(chat_id=CHANNEL_ID, text=f"An error occurred: {context.error}")
 
 # Bot classes
 
