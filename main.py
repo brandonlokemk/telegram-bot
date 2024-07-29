@@ -1393,7 +1393,22 @@ async def select_applicant_apply(update: Update, context:ContextTypes.DEFAULT_TY
     params = {"applicant_id": applicant_id, "job_post_id": job_post_id}
     if await safe_set_db(query_string, params):
         logger.info("Inserted applicant into job post list")
-    await query.edit_message_text(text=f"{applicant_name} has successfully applied for Job {job_post_id}!")
+    # Inform agency of new applicant
+    # Get agency_id from job_post_id
+    query_string = "SELECT agency_id, company_name, job_title FROM job_posts WHERE id = :id"
+    params = {"id": job_post_id}
+    results = await safe_get_db(query_string, params)
+    agency_id, company_name, job_title = results[0]
+    # Get chat_id from agency_id
+    query_string = "SELECT chat_id FROM agencies WHERE id = :id"
+    params = {"id": agency_id}
+    results = await safe_get_db(query_string, params)
+    if not results:
+        await query.edit_message_text("Sorry, that agency no longer exists")
+    else:
+        chat_id = results[0][0]
+        await context.bot.send_message(chat_id=chat_id, text=f"{applicant_name} has applied for Job {job_post_id}: {company_name} - {job_title}.\nPlease use the /shortlist command to shortlist applicants")
+        await query.edit_message_text(text=f"{applicant_name} has successfully applied for Job {job_post_id}!")
 
 
 
