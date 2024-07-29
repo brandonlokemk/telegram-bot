@@ -75,7 +75,8 @@ logger = logging.getLogger(__name__)
 
 # Define configuration constants
 URL = os.environ['CLOUD_URL']
-ADMIN_CHAT_ID = 494057457 #TODO change
+# ADMIN_CHAT_ID = 494057457 #TODO change
+ADMIN_CHAT_ID = 566682368
 # ADMIN_CHAT_ID = 1320357219
 # ADMIN_CHAT_ID
 CHANNEL_ID = -1002192841091 #TODO change
@@ -752,14 +753,40 @@ async def job_repost(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     # Format profiles as inline buttons
-    keyboard = [
-        [InlineKeyboardButton(f"Job ID: {job[0]}", callback_data=f"jobrepost|{job[0]}")]
-        for job in previously_posted_jobs
-    ]
+    await update.message.reply_text('Select the job which you want to repost:')
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text('Select the job which you want to repost:', reply_markup=reply_markup)
+    for job in previously_posted_jobs:
+        job_post_id = job[0]
+        query_string = '''
+        SELECT EXISTS (
+        SELECT 1
+        FROM job_posts
+        WHERE id = :job_post_id AND status = 'approved')
+        '''
+        params = {"job_post_id": job_post_id}
+        results = await safe_get_db(query_string, params)
+        repost = results[0][0]
+
+        # Check if part time
+        query_string = '''
+        SELECT EXISTS (
+        SELECT 1
+        FROM job_posts
+        WHERE id = :job_post_id AND job_type = 'part')
+        '''
+        params = {"job_post_id": job_post_id}
+        results = await safe_get_db(query_string, params)
+        part_time = results[0][0]
+        message = await draft_job_post_message(job[0], repost=repost, part_time=part_time)
     
+        keyboard = [
+            [InlineKeyboardButton(f"Job ID: {job[0]}", callback_data=f"jobrepost|{job[0]}")]
+            # for job in previously_posted_jobs
+        ]
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(text=message,reply_markup=reply_markup)
+
     return SELECT_JOB_TO_REPOST
 
 async def jobrepost_button(update: Update, context: CallbackContext) -> int:
@@ -850,8 +877,33 @@ async def confirm_job_repost(update, context):
         return ConversationHandler.END
 
 SELECT_AGENCY, ENTER_JOB_DETAILS, CONFIRMATION_JOB_POST, ENTER_JOB_TYPE, ENTER_OTHER_REQ= range(5)
-
+#TODO change to chat_id instead of username
 # Function to start job posting
+async def post_a_job_button(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    chat_id = query.from_user.id
+    await context.bot.send_message(chat_id=chat_id, text="You can use the /jobpost command to create a job posting!\n\nPlease ensure you have an <b>agency</b> profile before doing so.\nYou can create one with the /register command!", parse_mode='HTML')
+    await query.answer()
+    # # Below should be same/similar to job_post()
+    # query_string = "SELECT id, name, agency_name FROM agencies WHERE chat_id = :chat_id"
+    # params = {"chat_id": chat_id}
+    # agency_profiles = await safe_get_db(query_string, params)
+
+    # if not agency_profiles:
+    #     await context.bot.send_message(chat_id=chat_id, text='You have no agency profiles to post a job from.')
+    #     return ConversationHandler.END
+
+    # # Format profiles as inline buttons
+    # keyboard = [
+    #     [InlineKeyboardButton(f"{agency[1]} - {agency[2]}", callback_data=f"jobpost|{agency[0]}")]
+    #     for agency in agency_profiles
+    # ]
+
+    # reply_markup = InlineKeyboardMarkup(keyboard)
+    # await context.bot.send_message(chat_id=chat_id, text='Select the profile you want to use for job posting:', reply_markup=reply_markup)
+
+    # return SELECT_AGENCY
+
 async def job_post(update: Update, context: CallbackContext) -> int:
     user_handle = update.effective_user.username
 
@@ -882,9 +934,10 @@ async def job_post(update: Update, context: CallbackContext) -> int:
 
 # Callback function to handle profile selection for job posting
 async def jobpost_button(update: Update, context: CallbackContext) -> int:
+    logger.info("jobpost_button pressed")
     query = update.callback_query
+    logger.info("jobpost button:" + query.data)
     await query.answer()
-
     context.user_data['agency_id'] = query.data.split('|')[1]
      # Ask for job type
     keyboard = [
@@ -1241,8 +1294,8 @@ async def post_job_in_channel(update: Update, context: ContextTypes.DEFAULT_TYPE
     keyboard = []
     apply_button = [InlineKeyboardButton("Apply", callback_data=f"apply_{job_post_id}")]
     keyboard.append(apply_button)
-    # post_job_button = [InlineKeyboardButton("Post a Job", callback_data="post_job")]
-    # keyboard.append(post_job_button)
+    post_a_job_button = [InlineKeyboardButton("Post a Job", callback_data="post_a_job")]
+    keyboard.append(post_a_job_button)
     reply_markup = InlineKeyboardMarkup(keyboard)
     await context.bot.send_message(chat_id=CHANNEL_ID, text=message, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
 
@@ -2353,6 +2406,25 @@ async def purchaseSubscription(update: Update, context: ContextTypes.DEFAULT_TYP
     Returns:
         int: returns new state for convo handler
     """    
+    chat_id = update.effective_chat.id
+    # Check if chat_id is already in an active subscription plan
+    query_string = '''
+    SELECT EXISTS (
+    SELECT 1
+    FROM subscription_balance
+    WHERE chat_id = :chat_id AND status = 'active')
+    '''
+    params = {"chat_id": chat_id}
+    results = await safe_get_db(query_string, params)
+    already_subscribed = results[0][0]
+    if already_subscribed:
+        # Get current plan details from subscription_balance
+        query_string = "SELECT end_date FROM subscription_balance WHERE chat_id = :chat_id AND status = 'active' ORDER BY end_date DESC LIMIT 1"
+        params = {"chat_id": chat_id}
+        results = await safe_get_db(query_string, params)
+        end_date = results[0][0]
+        await update.message.reply_text(f"You are already in an active subscription plan which ends on {end_date}.\nAny new subscription plans will only begin after the current one has run out.")
+
     # Retrieve token packages from the database
     context.user_data['chat_id'] = update.effective_chat.id
     async with AsyncSessionLocal() as conn:
@@ -2385,7 +2457,9 @@ async def purchaseSubscription(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def subscription_selection(update: Update, context: CallbackContext) -> int:
     """
-     Saves chosen subscription in context.user_data['selected_subscription_id']
+    Saves chosen subscription in context.user_data['selected_subscription_id']
+    If user is already in active sub, it will extend the sub 
+
 
     Args:
         update (Update): _description_
@@ -2410,8 +2484,13 @@ async def subscription_selection(update: Update, context: CallbackContext) -> in
     already_subscribed = results[0][0]
     
     if already_subscribed:
-        await query.edit_message_text("You are already in an active subscription plan.\nPlease wait for that to end before purchasing a new one.")
-        return ConversationHandler.END
+        # Get current plan details from subscription_balance
+        query_string = "SELECT end_date FROM subscription_balance WHERE chat_id = :chat_id AND status = 'active'"
+        params = {"chat_id": chat_id}
+        results = await safe_get_db(query_string, params)
+        end_date = results[0][0]
+        # await query.edit_message_text(f"You are already in an active subscription plan which ends on {end_date}.\nAny new subscription plans will only begin after the current one has run out.")
+        # return ConversationHandler.END
     # Store the selected package_id in the user context
     context.user_data['selected_package_id'] = subpkg_id
 
@@ -2574,19 +2653,24 @@ async def forward_to_admin_for_acknowledgement(update: Update, context: ContextT
             [InlineKeyboardButton("Reject", callback_data=ss_reject_callback_data)]
         ] # Can check transaction ID if need details
         reply_markup = InlineKeyboardMarkup(keyboard)
+        # Get user handle from chat id
+        query_string = "SELECT user_handle FROM user_data WHERE chat_id = :chat_id"
+        params = {"chat_id": chat_id}
+        results = await safe_get_db(query_string, params)
+        user_handle = results[0][0]
         if isSubscription:
             # Get sub package details
             query_string = "SELECT sub_name, number_of_tokens, duration_months, price FROM subscription_packages WHERE subpkg_code = :subpkg_code"
             params = {"subpkg_code": package_id}
             results = await safe_get_db(query_string, params)
             sub_name, tokens_per_month, duration_months, price = results[0]
-            caption = f"Dear Admin, ${price} purchase made by {chat_id} for Subscription package ID {package_id}: {sub_name}\nThey will be allocated {tokens_per_month}tokens for {duration_months}months."
+            caption = f"Dear Admin, {user_handle} wants to purchase the Subscription Package ID {package_id}: {sub_name} for ${price}\nThey will be allocated {tokens_per_month} tokens for {duration_months} months."
         else:
             query_string = "SELECT package_name, number_of_tokens, price, validity FROM token_packages WHERE package_id = :package_id"
             params = {"package_id": package_id}
             results = await safe_get_db(query_string, params)
             package_name, number_of_tokens, price, validity = results[0]
-            caption = f"Dear Admin, ${price} purchase made by {chat_id} for Package ID {package_id}: {package_name}"
+            caption = f"Dear Admin, {user_handle} wants to purchase the Subscription Package ID {package_id}: {package_name} for ${price}"
         await context.bot.send_photo(
             chat_id=ADMIN_CHAT_ID,
             photo=photo,
@@ -2649,10 +2733,10 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
     logger.info(f'Callback query data: {query.data}')
     query_data = query.data
     # Check which query data it is (which button admin pressed)
-    if query_data.startswith('sp_'):
-        logger.info("Subscription package query found")
-        # Getting admin response as well as transaction ID
-        status, transaction_id = query_data.split('_')[1:]
+    # if query_data.startswith('sp_'):
+    #     logger.info("Subscription package query found")
+    #     # Getting admin response as well as transaction ID
+    #     status, transaction_id = query_data.split('_')[1:]
 
 
     if query_data.startswith('ss_'): 
@@ -2684,12 +2768,31 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
                 exp_date = exp_date.date()
                 await query.answer()  # Acknowledge the callback query to remove the loading state
             elif isSubscription:
+                # Check if has existing subs
+                chat_id = update.effective_chat.id
+                # Check if chat_id is already in an active subscription plan
+                query_string = '''
+                SELECT EXISTS (
+                SELECT 1
+                FROM subscription_balance
+                WHERE chat_id = :chat_id AND status = 'active')
+                '''
+                params = {"chat_id": chat_id}
+                results = await safe_get_db(query_string, params)
+                already_subscribed = results[0][0]
+                if already_subscribed:
+                    await add_active_subscription(chat_id, package_id)
+                    await query.edit_message_caption(caption="You have approved the payment.\n\nCredits have been transferred.")
+                    await context.bot.send_message(chat_id=chat_id, text="Your payment has been acknowledged by an admin!")
+                    return
+
+                else:
                 # Top up once and top up every month
-                (new_balance, exp_date) = await update_balance_subscription(chat_id, package_id)
-                await add_active_subscription(chat_id, package_id)
+                    (new_balance, exp_date) = await update_balance_subscription(chat_id, package_id)
+                    await add_active_subscription(chat_id, package_id)
             
             # Edit the caption of the photo message
-            await query.edit_message_caption(caption="You have acknowledged the screenshot.\n\nCredits have been transferred.")
+            await query.edit_message_caption(caption="You have approved the payment.\n\nCredits have been transferred.")
             
             # Notify the user
             await context.bot.send_message(chat_id=chat_id, text=f"Your payment has been acknowledged by an admin!.\n\nYour new token balance is: {new_balance}\nExpiring on: {exp_date}")
@@ -2706,7 +2809,7 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
             await query.edit_message_caption(caption="You have rejected the screenshot.\n\nUser will be notified")
             
             # Notify the user
-            await context.bot.send_message(chat_id=chat_id, text="Your payment has been rejected by an admin. Please PM admin for more details")
+            await context.bot.send_message(chat_id=chat_id, text="Your payment has been rejected by an admin. Please PM @jojoweipop for more details")
 
     elif query_data.startswith('jp_'): 
         logger.info("JP query found")
@@ -2823,9 +2926,9 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
             
             # Notify the user
             if repost:
-                text = "Your repost has been rejected by an admin. Please PM admin for more details"
+                text = "Your repost has been rejected by an admin. Please PM @jojoweipop for more details"
             else:
-                text = "Your posting has been rejected by an admin. Please PM admin for more details"
+                text = "Your posting has been rejected by an admin. Please PM @jojoweipop for more details"
             await context.bot.send_message(chat_id=chat_id, text=text)
 
 async def add_active_subscription(chat_id, package_id):
@@ -2834,7 +2937,7 @@ async def add_active_subscription(chat_id, package_id):
     '''
     # Checks if it is a subscription package
     if 's' in package_id:
-        isSubscription = True
+        pass
     else:
         raise Exception("Package is not a subscription")
     # Get subs package details
@@ -2844,11 +2947,31 @@ async def add_active_subscription(chat_id, package_id):
     package_details = results[0]
     sub_name, tokens_per_month, duration_months, price = package_details
     curr_date = datetime.now().date()
-
+    # Check if has existing subscription
+    query_string = """
+    SELECT EXISTS (
+        SELECT 1
+        FROM subscription_balance
+        WHERE chat_id = :chat_id
+        AND status = 'active'
+    ) AS entry_exists;
+    """
+    params = {"chat_id": chat_id}
+    results = await safe_get_db(query_string, params)
+    have_existing_sub = results[0][0]
+    if have_existing_sub:
+        # Find the last date for existing subs
+        query_string = "SELECT end_date FROM subscription_balance WHERE chat_id = :chat_id AND status = 'active' ORDER BY end_date DESC LIMIT 1"
+        params = {"chat_id": chat_id}
+        results = await safe_get_db(query_string, params)
+        current_end_date = results[0][0]
+        # Set start date of new sub to the day after current end date
+        start_date = current_end_date + relativedelta(days=1)
+    else:
+        start_date = curr_date
     # Create new entry
     query_string = "INSERT INTO subscription_balance (chat_id, start_date, end_date, last_distribution, status, subpkg_id) VALUES (:chat_id, :start_date, :end_date, :last_distribution, :status, :subpkg_id)"
-    start_date = curr_date
-    end_date = curr_date + relativedelta(months=duration_months)
+    end_date = start_date + relativedelta(months=duration_months)
     last_distribution = curr_date
     status = 'active'
     params = {
@@ -2985,7 +3108,7 @@ async def view_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE):
         results = await get_db(query_string)
         curr_tokens, curr_exp_date = results[0]
         # Notify user
-        await update.message.reply_text(text=f"You have {curr_tokens} tokens expiring on {curr_exp_date}.")
+        await update.message.reply_text(text=f"You have {curr_tokens} tokens expiring on {curr_exp_date.date()}.")
 
     else: 
         await update.message.reply_text(text="You have no tokens available.")
@@ -3075,9 +3198,9 @@ async def daily_checks(bot):
     # check active subscriptions
     try:
         # get active subscriptions
-        now = datetime.now().date()
+        now = datetime.now()
 
-        query_string = "SELECT id, chat_id, end_date, last_distribution, subpkg_id FROM subscription_balance WHERE status = :status"
+        query_string = "SELECT id, chat_id, start_date, end_date, last_distribution, subpkg_id FROM subscription_balance WHERE status = :status"
         params = {"status": 'active'}
         active_subs = await safe_get_db(query_string, params)
         # chat_id, end_date, last_distribution, subpkg_id = active_subs
@@ -3085,7 +3208,7 @@ async def daily_checks(bot):
 
 
 
-        for sub_balance_id, chat_id, end_date, last_distribution, subpkg_id in active_subs:
+        for sub_balance_id, chat_id, start_date, end_date, last_distribution, subpkg_id in active_subs:
             # if expired
             if now >= end_date:
                 # Set status to expired
@@ -3102,7 +3225,7 @@ async def daily_checks(bot):
             # Calculate the next distribution date
             next_distribution_date = last_distribution + relativedelta(months=1)
             
-            if (now >= next_distribution_date):
+            if (now >= next_distribution_date) and (now >= start_date):
                 # Set last distribution_date
                 query_string = "UPDATE subscription_balance SET last_distribution = :last_distribution WHERE id = :id"
                 params = {
@@ -3135,7 +3258,7 @@ async def daily_checks(bot):
                         new_date = curr_exp_date # Just for returning the expiry date, new_date is not used here
                     # Update db
                     await set_db(query_string)
-                    bot.send_message(chat_id=chat_id, text=f"{tokens_per_month} has been allocated to your account.\nYour have a new balance of {new_balance}, expiring on {new_date}.")
+                    await bot.send_message(chat_id=chat_id, text=f"{tokens_per_month} tokens have been allocated to your account.\nYour have a new balance of {new_balance}, expiring on {new_date}.")
 
                     # return new_balance, new_date
                 # If no existing entry, create new entry
@@ -3144,7 +3267,7 @@ async def daily_checks(bot):
                     query_string = f"INSERT INTO token_balance (chat_id, tokens, exp_date) VALUES ('{chat_id}', '{tokens_per_month}', '{new_date}')"
                     await set_db(query_string)
                     logger.info("Chat ID does not exist in token_balance table")
-                    bot.send_message(chat_id=chat_id, text=f"{tokens_per_month} has been allocated to your account.\nYour have a new balance of {tokens_per_month}, expiring on {new_date}.")
+                    await bot.send_message(chat_id=chat_id, text=f"{tokens_per_month} tokens have been allocated to your account.\nYour have a new balance of {tokens_per_month}, expiring on {new_date}.")
 
                     # return tokens_per_month, new_date
     except Exception as e:
@@ -3170,6 +3293,7 @@ async def main() -> None:
     # Here we set updater to None because we want our custom webhook server to handle the updates
     # and hence we don't need an Updater instance
     # await async_test_db()
+
     application = (
         Application.builder().token(BOT_TOKEN).updater(None).context_types(context_types).build()
     )
@@ -3251,8 +3375,12 @@ async def main() -> None:
 
 # Job post convo handler
     job_post_handler = ConversationHandler(
-    entry_points=[CommandHandler('jobpost', job_post)],
+    entry_points=[
+        CommandHandler('jobpost', job_post), 
+        # CallbackQueryHandler(post_a_job_button, pattern='post_a_job')
+        ],
     states={
+        # SELECT_AGENCY: [CallbackQueryHandler(jobpost_button, pattern='^jobpost')],
         SELECT_AGENCY: [CallbackQueryHandler(jobpost_button)],
         ENTER_JOB_TYPE: [CallbackQueryHandler(job_type_selection, pattern='^job_type_')],
         ENTER_JOB_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, jobpost_text_handler)],
@@ -3422,6 +3550,7 @@ async def main() -> None:
     application.add_handler(CallbackQueryHandler(select_applicant_apply, pattern="^ja_\d+_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
     application.add_handler(CallbackQueryHandler(apply_button_handler, pattern='^apply_\d+$'))
     application.add_handler(CallbackQueryHandler(view_button_handler, pattern='^view_(agency|applicant)_(.+)$'))
+    application.add_handler(CallbackQueryHandler(post_a_job_button, pattern="post_a_job"))
 
     # Message Handler
     ## NIL ##
@@ -3482,7 +3611,7 @@ async def main() -> None:
         )
     )
     loop = asyncio.get_event_loop()
-    schedule.every().day.at("00:00").do(lambda: asyncio.run_coroutine_threadsafe(daily_checks(application.bot), loop))
+    schedule.every().day.at("19:02").do(lambda: asyncio.run_coroutine_threadsafe(daily_checks(application.bot), loop))
 
     # Create the asyncio task for running the schedule
     schedule_task = loop.create_task(run_schedule())
