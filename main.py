@@ -3562,7 +3562,7 @@ async def main() -> None:
             CommandHandler('register', start)
         ],
         states={
-        NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_for_dob)],
+        NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_for_dob),CallbackQueryHandler(register_button, pattern='^(applicant|agency)$')],
         DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, validate_dob)],
         PAST_EXPERIENCES: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
         CITIZENSHIP: [CallbackQueryHandler(citizenship_button)],
@@ -3782,7 +3782,7 @@ async def main() -> None:
 
     # CallbackQueryHandlers
     application.add_handler(CallbackQueryHandler(delete_button, pattern='^delete\\|'))
-    application.add_handler(CallbackQueryHandler(register_button, pattern='^(applicant|agency)$'))
+    # application.add_handler(CallbackQueryHandler(register_button, pattern='^(applicant|agency)$'))
     application.add_handler(CallbackQueryHandler(get_admin_acknowledgement, pattern='^(ss_|jp_)(accept|reject)_\d+$'))
     application.add_handler(CallbackQueryHandler(select_applicant_apply, pattern="^ja_\d+_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
     application.add_handler(CallbackQueryHandler(apply_button_handler, pattern='^apply_\d+$'))
