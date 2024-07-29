@@ -1743,7 +1743,7 @@ async def select_job(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             if shortlists > 0:
                 keyboard.append([InlineKeyboardButton("Shortlist", callback_data=f"shortlist|{applicant_id}")])
             else:
-                keyboard.append([InlineKeyboardButton("No Shortlists Available", callback_data="no_shortlists")])
+                keyboard.append([InlineKeyboardButton("Shortlist", callback_data="no_shortlists")])
 
             # Add Done button
             keyboard.append([InlineKeyboardButton("Done", callback_data="done")])
@@ -2619,7 +2619,7 @@ async def purchasetokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Add static package info
     package_info += "<b><u>Token Usage</u></b>\n\n"
-    package_info += "<b>3 additional shortlist = </b> 5 tokens\n<b>1 post (+3 shortlist) =</b> 45 tokens \n<b>Repost posting (+3 shortlist) =</b> 30 tokens \n\nPlease select a package:"
+    package_info += "<b>Part Time Job Post (+3 shortlists):</b> 45 tokens \n<b>Full Time Job Post (+3 shortlists):</b> 70 tokens \n<b>Reposting of jobs (+3 shortlist):</b> 30 tokens \n<b>3 additional shortlist: </b>5 tokens\n\nPlease select a package:"
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(package_info, reply_markup=reply_markup, parse_mode='HTML')
 
