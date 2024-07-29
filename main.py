@@ -784,7 +784,7 @@ async def job_repost(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
 
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(text=message,reply_markup=reply_markup)
+        await update.message.reply_text(text=message,reply_markup=reply_markup, parse_mode='HTML')
 
     return SELECT_JOB_TO_REPOST
 
@@ -884,7 +884,24 @@ SELECT_AGENCY, ENTER_JOB_DETAILS, CONFIRMATION_JOB_POST, ENTER_JOB_TYPE, ENTER_O
 async def post_a_job_button(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     chat_id = query.from_user.id
-    await context.bot.send_message(chat_id=chat_id, text="You can use the /jobpost command to create a job posting!\n\nPlease ensure you have an <b>agency</b> profile before doing so.\nYou can create one with the /register command!", parse_mode='HTML')
+    # Check if user has chat_id in /start
+    query_string = '''
+    SELECT EXISTS (
+    SELECT 1
+    FROM user_data
+    WHERE chat_id = :chat_id)
+    '''
+    params = {"chat_id": chat_id}
+    results = await safe_get_db(query_string, params)
+    previously_used = results[0][0]
+    if previously_used:
+        await context.bot.send_message(chat_id=chat_id, text="You can use the /jobpost command to create a job posting!\n\nPlease ensure you have an <b>agency</b> profile before doing so.\nYou can create one with the /register command!", parse_mode='HTML')
+    else:
+        message = '''
+        Welcome to SG Part Timers & Talents’ telegram group job poster! We will resolve all your hiring needs, with past credentials of 99.5% hired, database of 45,000 job seekers, talents, influencers, cosplayers, models, emcees, DJs.\n\n
+In here, we use the currency token to post jobs & shortlists talents
+Please check out our packages to post a job!'''
+        await context.bot.send_message(chat_id=chat_id, text=message)
     await query.answer()
     # # Below should be same/similar to job_post()
     # query_string = "SELECT id, name, agency_name FROM agencies WHERE chat_id = :chat_id"
@@ -2882,6 +2899,7 @@ async def forward_to_admin_for_acknowledgement(update: Update, context: ContextT
             [InlineKeyboardButton("Reject", callback_data=jp_reject_callback_data)]
         ] # Can check transaction ID if need details
         reply_markup = InlineKeyboardMarkup(keyboard)
+        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text="There is a new job posting pending your approval:")
         await context.bot.send_message(
             chat_id=ADMIN_CHAT_ID,
             text=message,
