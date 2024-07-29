@@ -254,7 +254,7 @@ class CustomContext(CallbackContext[ExtBot, dict, dict, dict]):
 # Register command
 #TODO add error/wrong input filtering/handling
 
-NAME, DOB, PAST_EXPERIENCES, CITIZENSHIP, RACE, GENDER, HIGHEST_EDUCATION, WHATSAPP_NUMBER, FULL_NAME, COMPANY_NAME, COMPANY_UEN = range(11)
+NAME, DOB, PAST_EXPERIENCES, CITIZENSHIP, RACE, GENDER, HIGHEST_EDUCATION, LANGUAGES_SPOKEN, WHATSAPP_NUMBER, FULL_NAME, COMPANY_NAME, COMPANY_UEN = range(12)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = [
@@ -301,10 +301,16 @@ async def ask_for_dob(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     context.user_data['registration_step'] = 'dob'
     return DOB
 
+async def ask_for_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info("Entered ask_for_lang")
+    context.user_data['dob'] = update.message.text
+    await update.message.reply_text('Please enter the languages you speak:')
+    context.user_data['registration_step'] = 'lang_spoken'
+    return LANGUAGES_SPOKEN
 
 async def ask_for_past_experiences(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("Entered ask_for_past_experiences")
-    context.user_data['dob'] = update.message.text
+    context.user_data['lang_spoken'] = update.message.text
     await update.message.reply_text('Please enter your past experiences to improve chances of getting shortlisted:')
     context.user_data['registration_step'] = 'past_experiences'
     return PAST_EXPERIENCES
@@ -431,7 +437,7 @@ async def save_applicant(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     async with AsyncSessionLocal() as conn:
         await conn.execute(
             sqlalchemy.text(
-        f"INSERT INTO applicants (user_handle, chat_id, name, dob, past_exp, citizenship, race, gender, education, whatsapp_no) VALUES ('{context.user_data['user_handle']}','{context.user_data['chat_id']}', '{context.user_data['name']}', '{context.user_data['dob']}', '{context.user_data['past_experiences']}', '{context.user_data['citizenship']}', '{context.user_data['race']}', '{context.user_data['gender']}', '{context.user_data['highest_education']}', '{context.user_data['whatsapp_number']}')"
+        f"INSERT INTO applicants (user_handle, chat_id, name, dob, past_exp, citizenship, race, gender, education, lang_spoken, whatsapp_no) VALUES ('{context.user_data['user_handle']}','{context.user_data['chat_id']}', '{context.user_data['name']}', '{context.user_data['dob']}', '{context.user_data['past_experiences']}', '{context.user_data['citizenship']}', '{context.user_data['race']}', '{context.user_data['gender']}', '{context.user_data['highest_education']}', '{context.user_data['lang_spoken']}','{context.user_data['whatsapp_number']}')"
 
     )
         )
@@ -480,6 +486,8 @@ async def registration_text_handler(update: Update, context: ContextTypes.DEFAUL
         if step == 'name':
             return await ask_for_dob(update, context)
         elif step == 'dob':
+            return await ask_for_lang(update, context)
+        elif step == 'lang_spoken':
             return await ask_for_past_experiences(update, context)
         elif step == 'past_experiences':
             return await ask_for_citizenship(update, context)
@@ -1593,15 +1601,16 @@ async def select_job(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Retrieve applicant details for each applicant_id
     for i, applicant_id in enumerate(applicant_ids, start=1):
         query = (
-            "SELECT dob, past_exp, citizenship, race, gender, education "
+            "SELECT dob, past_exp, citizenship, race, gender, education,lang_spoken "
             "FROM applicants WHERE id = :applicant_id"
         )
         applicant = await safe_get_db(query, {"applicant_id": applicant_id})
         if applicant:
-            dob, past_exp, citizenship, race, gender, education = applicant[0]
+            dob, past_exp, citizenship, race, gender, education, lang_spoken = applicant[0]
             applicant_details = (
                 f"<b>Applicant {i}</b>\n\n"
                 f"<b>DOB:</b> {dob}\n"
+                f"<b>Languages Spoken:</b> {lang_spoken}\n"
                 f"<b>Past Experiences:</b> {past_exp}\n"
                 f"<b>Citizenship:</b> {citizenship}\n"
                 f"<b>Race:</b> {race}\n"
@@ -1901,7 +1910,7 @@ async def view_shortlisted(update: Update, context: CallbackContext) -> int:
     agency_ids = [row[0] for row in agency_ids]
 
     # Retrieve job titles and industries for the agency_id(s) from the job_posts table
-    query = "SELECT id, job_title, company_industry FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
+    query = "SELECT id, job_title, company_name FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
     jobs_result = await safe_get_db(query, {"agency_ids": tuple(agency_ids)})
 
     if not jobs_result:
@@ -1928,7 +1937,7 @@ async def view_applicants(update: Update, context: CallbackContext) -> int:
     context.user_data['selected_job_id'] = job_id
 
     # Retrieve the selected job title and company industry
-    query = "SELECT job_title, company_industry FROM job_posts WHERE id = :job_id"
+    query = "SELECT job_title, company_name FROM job_posts WHERE id = :job_id"
     job = await safe_get_db(query, {"job_id": job_id})
 
     if not job:
@@ -1955,17 +1964,18 @@ async def view_applicants(update: Update, context: CallbackContext) -> int:
     # Send applicant details
     for i, applicant_id in enumerate(applicant_ids, start=1):
         query_details = (
-            "SELECT user_handle, name, dob, past_exp, citizenship, race, gender, education, whatsapp_no "
+            "SELECT user_handle, name, dob, past_exp, citizenship, race, gender, education, lang_spoken, whatsapp_no "
             "FROM applicants WHERE id = :applicant_id"
         )
         details_result = await safe_get_db(query_details, {"applicant_id": applicant_id})
         if details_result:
-            user_handle, name, dob, past_exp, citizenship, race, gender, education, wa_number = details_result[0]
+            user_handle, name, dob, past_exp, citizenship, race, gender, education, lang_spoken, wa_number = details_result[0]
             await callback_query.message.reply_text(
                 f"<b>Applicant {i}</b>\n\n"
                 f"<b>User Handle:</b> @{user_handle}\n"
                 f"<b>Name:</b> {name}\n"
                 f"<b>DOB:</b> {dob}\n"
+                f"<b>Languages Spoken:</b> {lang_spoken}\n"
                 f"<b>Past Experience:</b> {past_exp}\n"
                 f"<b>Citizenship:</b> {citizenship}\n"
                 f"<b>Race:</b> {race}\n"
@@ -3371,6 +3381,7 @@ async def main() -> None:
         RACE: [CallbackQueryHandler(race_button)],
         GENDER: [CallbackQueryHandler(gender_button)],
         HIGHEST_EDUCATION: [CallbackQueryHandler(highest_education_button)],
+        LANGUAGES_SPOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
         WHATSAPP_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
         FULL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
         COMPANY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
