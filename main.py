@@ -56,10 +56,8 @@ from telegram.ext import (
     )
 from dotenv import load_dotenv
 
-#TODO change/sanitize f-string SQL entries to protect from injection attacks - CHANGE TO SAFE FORMAT SO THAT IT WORKS!!!
-#TODO lock all commands in private chats (should not be able to work in group chats)
-#TODO add try and except blocks for conversation handlers
-#TODO change all
+# TODO change/sanitize f-string SQL entries to protect from injection attacks - CHANGE TO SAFE FORMAT SO THAT IT WORKS!!!
+# TODO add try and except blocks for conversation handlers
 # Load .env
 load_dotenv()
 # Enable logging
@@ -75,11 +73,11 @@ logger = logging.getLogger(__name__)
 
 # Define configuration constants
 URL = os.environ['CLOUD_URL']
-# ADMIN_CHAT_ID = 494057457 #TODO change
+# ADMIN_CHAT_ID = 494057457 
 ADMIN_CHAT_ID = 566682368
 # ADMIN_CHAT_ID = 1320357219
 # ADMIN_CHAT_ID
-CHANNEL_ID = -1002192841091 #TODO change
+CHANNEL_ID = -1002192841091
 PORT = 8080
 BOT_TOKEN = os.environ['BOT_TOKEN'] # nosec B105
 JOB_POST_PRICE = 70
@@ -217,15 +215,6 @@ async def set_db(query_string: str):
         logger.info(f"Error in interacting with database: {e}")
         return False
     
-
-async def async_test_db(): #TODO remove
-    user_handle = "brandonlmk"
-    query_string = f"SELECT id, agency_name FROM agencies WHERE user_handle = '{user_handle}'"
-    query_string = "SELECT id, agency_name FROM agencies WHERE user_handle = :user_handle"
-    agency_profiles = await safe_get_db(query_string, params={"user_handle": user_handle})
-    logger.info(agency_profiles) #
-    return agency_profiles
-
 @dataclass
 class WebhookUpdate:
     """Simple dataclass to wrap a custom update type"""
@@ -752,9 +741,6 @@ async def enter_new_value(update: Update, context: CallbackContext) -> int:
 
 ###########################################################################################################################################################   
 # #Job Posting
-#TODO implement forwarding job post to admin and get acknowledgement
-
-#TODO change user handle to chat_id
 
 SELECT_AGENCY_REPOST, SELECT_JOB_TO_REPOST, CONFIRMATION_JOB_REPOST= range(3)
 async def job_repost(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -904,7 +890,6 @@ async def confirm_job_repost(update, context):
 # Job Posting fn
 
 SELECT_AGENCY, ENTER_JOB_DETAILS, CONFIRMATION_JOB_POST, ENTER_JOB_TYPE, ENTER_OTHER_REQ= range(5)
-#TODO change to chat_id instead of username
 # Function to start job posting
 async def post_a_job_button(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
@@ -949,14 +934,14 @@ Please check out our packages to post a job!'''
     # return SELECT_AGENCY
 
 async def job_post(update: Update, context: CallbackContext) -> int:
-    user_handle = update.effective_user.username
-
+    # user_handle = update.effective_user.username
+    chat_id = update.effective_chat.id
     # Retrieve agency profiles for the user_handle
     async with AsyncSessionLocal() as conn:
         # Execute the query and fetch all results
         results = await conn.execute(
             sqlalchemy.text(
-               f"SELECT id, name, agency_name FROM agencies WHERE user_handle = '{user_handle}'"
+               f"SELECT id, name, agency_name FROM agencies WHERE chat_id = '{chat_id}'"
                )
         )
         agency_profiles = results.fetchall()
@@ -1347,7 +1332,7 @@ async def draft_job_post_message(job_id, repost=False, part_time=False) -> str:
     return message
 
 
-async def post_job_in_channel(update: Update, context: ContextTypes.DEFAULT_TYPE, message, job_post_id): #TODO fix template for job posts, what info should be shown to everyone (company name, etc.)
+async def post_job_in_channel(update: Update, context: ContextTypes.DEFAULT_TYPE, message, job_post_id):
     """
     Broadcasts the job in the channel.
     Message will contain a button for applicants to press which opens up a private chat from the bot to choose applicant profile.
@@ -1403,16 +1388,16 @@ async def select_applicant_apply(update: Update, context:ContextTypes.DEFAULT_TY
     params = {"applicant_id": applicant_id}
     results = await safe_get_db(query_string, params)
     applicant_name = results[0][0]
-    # Add applicant id to job application list #TODO need check if user has already applied with this profile
+    # Add applicant id to job application list
     query_string = "INSERT INTO job_applications (applicant_id, job_id, shortlist_status) VALUES (:applicant_id, :job_post_id, 'no')"
     params = {"applicant_id": applicant_id, "job_post_id": job_post_id}
     if await safe_set_db(query_string, params):
         logger.info("Inserted applicant into job post list")
-    await query.edit_message_text(text=f"{applicant_name} has successfully applied for Job {job_post_id}!") #TODO might need to add applicant_name to message
+    await query.edit_message_text(text=f"{applicant_name} has successfully applied for Job {job_post_id}!")
 
 
 
-async def save_jobpost(user_data): #TODO add status
+async def save_jobpost(user_data):
     '''
     Saves job in DB and returns ID of new entry
     '''
@@ -2511,7 +2496,6 @@ async def delete_subscription(update: Update, context: CallbackContext) -> int:
 SELECT_PACKAGE, CONFIRM_DELETE = range(2)
 
 # Function to handle /deletepackage command
-#TODO remove constraints in DB
 async def delete_package(update: Update, context: CallbackContext) -> int:
     if (update.effective_chat.id != ADMIN_CHAT_ID):
         return ConversationHandler.END    
@@ -2608,7 +2592,6 @@ async def purchasetokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     package_info = "<u><b>Packages:</b></u>\n\n"
     for package in token_packages:
         package_id, package_name, tokens, price, description, validity = package
-        #TODO add validity to package_info
         package_info += f"<b>{package_name}</b>:\n{description}\nTokens are valid for {validity} days\n\n"
         keyboard.append([InlineKeyboardButton(package_name, callback_data=f"select_package|{package_id}")])
 
@@ -2896,17 +2879,17 @@ async def forward_to_admin_for_acknowledgement(update: Update, context: ContextT
             params = {"subpkg_code": package_id}
             results = await safe_get_db(query_string, params)
             sub_name, tokens_per_month, duration_months, price = results[0]
-            caption = f"Dear Admin, {user_handle} wants to purchase the Subscription Package ID {package_id}: {sub_name} for ${price}\nThey will be allocated {tokens_per_month} tokens for {duration_months} months."
+            caption = f"Dear Admin, {user_handle} wants to purchase the Subscription Package: {sub_name} for ${price}\nThey will be allocated {tokens_per_month} tokens for {duration_months} months."
         else:
             query_string = "SELECT package_name, number_of_tokens, price, validity FROM token_packages WHERE package_id = :package_id"
             params = {"package_id": package_id}
             results = await safe_get_db(query_string, params)
             package_name, number_of_tokens, price, validity = results[0]
-            caption = f"Dear Admin, {user_handle} wants to purchase the Subscription Package ID {package_id}: {package_name} for ${price}"
+            caption = f"Dear Admin, {user_handle} wants to purchase the Subscription Package: {package_name} for ${price}"
         await context.bot.send_photo(
             chat_id=ADMIN_CHAT_ID,
             photo=photo,
-            caption=caption, #TODO add details regarding transaction
+            caption=caption,
             reply_markup=reply_markup
         )
         await update.message.reply_text(
@@ -3002,7 +2985,7 @@ async def get_admin_acknowledgement(update: Update, context: ContextTypes.DEFAUL
                 await query.answer()  # Acknowledge the callback query to remove the loading state
             elif isSubscription:
                 # Check if has existing subs
-                chat_id = update.effective_chat.id
+                # chat_id = update.effective_chat.id
                 # Check if chat_id is already in an active subscription plan
                 query_string = '''
                 SELECT EXISTS (
@@ -3425,14 +3408,14 @@ async def daily_checks(bot):
 
             # notify users that their credits have expired (send to admin as well)
             await bot.send_message(chat_id=chat_id, text=f"{expiring_tokens} tokens have expired today!\n\nTo purchase more tokens, please use the /purchasetokens command!")
-            await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"{expiring_tokens} tokens has expired from {user_handle}'s account.") #TODO test this
+            await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"{expiring_tokens} tokens has expired from {user_handle}'s account.")
     except Exception as e:
         logger.info(e)
     # check active subscriptions
     try:
         # get active subscriptions
         now = datetime.now()
-
+        logger.info("Getting active subs:")
         query_string = "SELECT id, chat_id, start_date, end_date, last_distribution, subpkg_id FROM subscription_balance WHERE status = :status"
         params = {"status": 'active'}
         active_subs = await safe_get_db(query_string, params)
@@ -3447,6 +3430,7 @@ async def daily_checks(bot):
                 # Set status to expired
                 query_string = "UPDATE subscription_balance SET status = :status WHERE id = :sub_balance_id"
                 params = {"status": "expired", "sub_balance_id": sub_balance_id}
+                await safe_set_db(query_string, params)
                 continue # goes to next subscription
 
             # if active subscription
@@ -3459,10 +3443,11 @@ async def daily_checks(bot):
             next_distribution_date = last_distribution + relativedelta(months=1)
             
             if (now >= next_distribution_date) and (now >= start_date):
+                logger.info(f"Allocating tokens for subscription id: {sub_balance_id}")
                 # Set last distribution_date
                 query_string = "UPDATE subscription_balance SET last_distribution = :last_distribution WHERE id = :id"
                 params = {
-                    "last_distribution_date": now,
+                    "last_distribution": now,
                     "id": sub_balance_id
                     }
                 await safe_set_db(query_string, params)
@@ -3472,7 +3457,7 @@ async def daily_checks(bot):
                 results = await get_db(query_string)
                 # Calculate new expiry date
                 curr_date = now
-                new_date = curr_date + relativedelta(months=1) #! hardcoded package expiry to be each month
+                new_date = curr_date + relativedelta(months=1)
                 # If have existing entry
                 logger.info(f"Chat ID is already in token_balance table: {results}")
                 if (results[0][0]):
@@ -3491,7 +3476,7 @@ async def daily_checks(bot):
                         new_date = curr_exp_date # Just for returning the expiry date, new_date is not used here
                     # Update db
                     await set_db(query_string)
-                    await bot.send_message(chat_id=chat_id, text=f"{tokens_per_month} tokens have been allocated to your account.\nYour have a new balance of {new_balance}, expiring on {new_date}.")
+                    await bot.send_message(chat_id=chat_id, text=f"{tokens_per_month} tokens have been allocated to your account.\nYour have a new balance of {new_balance}, expiring on {new_date.date()}.")
 
                     # return new_balance, new_date
                 # If no existing entry, create new entry
@@ -3500,7 +3485,7 @@ async def daily_checks(bot):
                     query_string = f"INSERT INTO token_balance (chat_id, tokens, exp_date) VALUES ('{chat_id}', '{tokens_per_month}', '{new_date}')"
                     await set_db(query_string)
                     logger.info("Chat ID does not exist in token_balance table")
-                    await bot.send_message(chat_id=chat_id, text=f"{tokens_per_month} tokens have been allocated to your account.\nYour have a new balance of {tokens_per_month}, expiring on {new_date}.")
+                    await bot.send_message(chat_id=chat_id, text=f"{tokens_per_month} tokens have been allocated to your account.\nYour have a new balance of {tokens_per_month}, expiring on {new_date.date()}.")
 
                     # return tokens_per_month, new_date
     except Exception as e:
@@ -3525,7 +3510,6 @@ async def main() -> None:
     context_types = ContextTypes(context=CustomContext)
     # Here we set updater to None because we want our custom webhook server to handle the updates
     # and hence we don't need an Updater instance
-    # await async_test_db()
 
     application = (
         Application.builder().token(BOT_TOKEN).updater(None).context_types(context_types).build()
@@ -3544,17 +3528,17 @@ async def main() -> None:
 
 
 
-    #TODO remove since combined with purchase_tokens_handler
-    # Payment Convo Handler 
-    payment_handler = ConversationHandler(
-        entry_points=[CommandHandler('verifypayment', verifyPayment)],
-        states={
-            PHOTO_REQUESTED: [MessageHandler(filters.PHOTO, verifyPayment)]
-        },
+    # #TODO remove since combined with purchase_tokens_handler
+    # # Payment Convo Handler 
+    # payment_handler = ConversationHandler(
+    #     entry_points=[CommandHandler('verifypayment', verifyPayment)],
+    #     states={
+    #         PHOTO_REQUESTED: [MessageHandler(filters.PHOTO, verifyPayment)]
+    #     },
         
-        fallbacks=[CommandHandler('cancel', cancel)]
-    )
-    application.add_handler(payment_handler)
+    #     fallbacks=[CommandHandler('cancel', cancel)]
+    # )
+    # application.add_handler(payment_handler)
 
     # Registration Convo Handler
     registration_conversation_handler = ConversationHandler(
@@ -3784,7 +3768,7 @@ async def main() -> None:
     # CallbackQueryHandlers
     application.add_handler(CallbackQueryHandler(delete_button, pattern='^delete\\|'))
     application.add_handler(CallbackQueryHandler(register_button, pattern='^(applicant|agency)$'))
-    application.add_handler(CallbackQueryHandler(get_admin_acknowledgement, pattern='^(ss_|jp_)(accept|reject)_\d+$')) #TODO change to trasnaction ID pattern
+    application.add_handler(CallbackQueryHandler(get_admin_acknowledgement, pattern='^(ss_|jp_)(accept|reject)_\d+$'))
     application.add_handler(CallbackQueryHandler(select_applicant_apply, pattern="^ja_\d+_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
     application.add_handler(CallbackQueryHandler(apply_button_handler, pattern='^apply_\d+$'))
     application.add_handler(CallbackQueryHandler(view_button_handler, pattern='^view_(agency|applicant)_(.+)$'))
@@ -3849,7 +3833,7 @@ async def main() -> None:
         )
     )
     loop = asyncio.get_event_loop()
-    schedule.every().day.at("19:02").do(lambda: asyncio.run_coroutine_threadsafe(daily_checks(application.bot), loop))
+    schedule.every().day.at("00:00").do(lambda: asyncio.run_coroutine_threadsafe(daily_checks(application.bot), loop))
 
     # Create the asyncio task for running the schedule
     schedule_task = loop.create_task(run_schedule())
