@@ -831,9 +831,9 @@ async def jobrepost_button(update: Update, context: CallbackContext) -> int:
         return CONFIRMATION_JOB_REPOST
     else:
         if update.callback_query:
-            await update.callback_query.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchasetokens command!")
+            await update.callback_query.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchase_tokens command!")
         if update.message:
-            await update.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchasetokens command!")
+            await update.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchase_tokens command!")
         return ConversationHandler.END
 
 async def confirm_job_repost(update, context):
@@ -1236,7 +1236,7 @@ async def jobpost_additional_req(update: Update, context: CallbackContext) -> in
             await update.callback_query.message.reply_text(text= f"This will cost {tokens_to_deduct} tokens, do you want to proceed with posting?", reply_markup = reply_markup)
             return CONFIRMATION_JOB_POST
         else:
-            await update.callback_query.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchasetokens command!")
+            await update.callback_query.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchase_tokens command!")
             return ConversationHandler.END
 
     elif query.data == "yes":
@@ -1275,9 +1275,9 @@ async def handle_other_req_text(update: Update, context: CallbackContext) -> int
         return CONFIRMATION_JOB_POST
     else:
         if update.callback_query:
-            await update.callback_query.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchasetokens command!")
+            await update.callback_query.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchase_tokens command!")
         if update.message:
-            await update.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchasetokens command!")
+            await update.message.reply_text(text= "You do not have sufficient tokens.\nPlease top up via /purchase_tokens command!")
         return ConversationHandler.END
 
     return ENTER_JOB_DETAILS
@@ -1459,11 +1459,11 @@ async def purchase_shortlists(update: Update, context: CallbackContext) -> int:
     if tokens < 5:
         if update.message:
             await update.message.reply_text(
-                message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchasetokens.", parse_mode='HTML'
+                message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchase_tokens.", parse_mode='HTML'
             )
         if update.callback_query:
             await update.callback_query.message.reply_text(
-                message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchasetokens.", parse_mode='HTML'
+                message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchase_tokens.", parse_mode='HTML'
             )
         return ConversationHandler.END
 
@@ -1508,7 +1508,7 @@ async def handle_amount_choice(update: Update, context: CallbackContext) -> int:
 
     if tokens < tokens_required:
         await update.message.reply_text(
-            "Insufficient tokens. Please purchase more tokens at /purchasetokens."
+            "Insufficient tokens. Please purchase more tokens at /purchase_tokens."
         )
         return ConversationHandler.END
 
@@ -1787,11 +1787,11 @@ async def handle_no_shortlists(update: Update, context: ContextTypes.DEFAULT_TYP
     if tokens < 5:
         if update.message:
             await update.message.reply_text(
-                message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchasetokens.", parse_mode='HTML'
+                message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchase_tokens.", parse_mode='HTML'
             )
         if update.callback_query:
             await update.callback_query.message.reply_text(
-                message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchasetokens.", parse_mode='HTML'
+                message + "\n\n<b>Each 3 shortlists cost 5 tokens.</b>\n\nYou have insufficient tokens. Purchase more tokens at /purchase_tokens.", parse_mode='HTML'
             )
         return ConversationHandler.END
 
@@ -1836,7 +1836,7 @@ async def handle_amount_choice(update: Update, context: CallbackContext) -> int:
 
     if tokens < tokens_required:
         await update.message.reply_text(
-            "Insufficient tokens. Please purchase more tokens at /purchasetokens."
+            "Insufficient tokens. Please purchase more tokens at /purchase_tokens."
         )
         return ConversationHandler.END
 
@@ -2581,7 +2581,7 @@ async def cancel(update: Update, context: CallbackContext) -> int:
 
 SELECTING_PACKAGE, PHOTO_REQUESTED = range(2)
 
-async def purchasetokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def purchase_tokens(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Entry command for user to purchase token packages
     Provides user with package details
@@ -3422,7 +3422,7 @@ async def daily_checks(bot):
             user_handle = results[0][0]
 
             # notify users that their credits have expired (send to admin as well)
-            await bot.send_message(chat_id=chat_id, text=f"{expiring_tokens} tokens have expired today!\n\nTo purchase more tokens, please use the /purchasetokens command!")
+            await bot.send_message(chat_id=chat_id, text=f"{expiring_tokens} tokens have expired today!\n\nTo purchase more tokens, please use the /purchase_tokens command!")
             await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"{expiring_tokens} tokens has expired from {user_handle}'s account.")
     except Exception as e:
         logger.info(e)
@@ -3700,7 +3700,7 @@ async def main() -> None:
 
 # Purchasing tokens convo handler
     purchase_subscription_handler = ConversationHandler(
-    entry_points=[CommandHandler('purchasesubscription', purchaseSubscription)],
+    entry_points=[CommandHandler('purchase_subscription', purchaseSubscription)],
     states={
         SELECTING_SUBSCRIPTION: [CallbackQueryHandler(subscription_selection)],
         SUBSCRIPTION_PHOTO_REQUESTED: [MessageHandler(filters.PHOTO, verifyPayment)]
@@ -3711,7 +3711,7 @@ async def main() -> None:
 
 # Purchasing tokens convo handler
     purchase_tokens_handler = ConversationHandler(
-    entry_points=[CommandHandler('purchasetokens', purchasetokens)],
+    entry_points=[CommandHandler('purchase_tokens', purchase_tokens)],
     states={
         SELECTING_PACKAGE: [CallbackQueryHandler(package_selection)],
         PHOTO_REQUESTED: [MessageHandler(filters.PHOTO, verifyPayment)]
