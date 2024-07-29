@@ -302,18 +302,43 @@ async def register_button(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return NAME
     elif query.data == 'agency':
         await query.edit_message_text(text="You chose Agency.")
-        await query.message.reply_text("In SG Part Timers & Talents telegram group, we use the currency token to post jobs and shortlist talent. Please check out our packages to post a job!")
+        await query.message.reply_text("Welcome to SG Part Timers & Talents’ telegram group job poster! We will resolve all your hiring needs, with past credentials of 99.5% hired, database of 45,000 job seekers, talents, influencers, cosplayers, models, emcees, DJs.\n\nIn here, we use the currency token to post jobs & shortlists talents.\nPlease check out our packages to post a job!")
         await query.message.reply_text("Please enter your full name:")
         context.user_data['registration_step'] = 'full_name'
         return FULL_NAME
 
 # Define the functions for each step
+def is_valid_date(date_str: str) -> bool:
+    try:
+        datetime.strptime(date_str, '%Y-%m-%d')
+        return True
+    except ValueError:
+        return False
+
 async def ask_for_dob(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("Entered ask_for_dob")
-    context.user_data['name'] = update.message.text
-    await update.message.reply_text('Please enter your date of birth (YYYY-MM-DD):')
-    context.user_data['registration_step'] = 'dob'
-    return DOB
+
+    if context.user_data['registration_step'] == 'name':
+        context.user_data['name'] = update.message.text
+        await update.message.reply_text('Please enter your date of birth (YYYY-MM-DD):')
+        context.user_data['registration_step'] = 'dob'
+        return DOB
+
+    return await validate_dob(update, context)
+
+async def validate_dob(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info("Entered validate_dob")
+    dob = update.message.text
+    logger.info("Before validation function")
+    if is_valid_date(dob):
+        logger.info("DOB is valid")
+        context.user_data['dob'] = dob
+        return await ask_for_lang(update, context)
+    else:
+        logger.info("Invalid DOB format")
+        await update.message.reply_text('Invalid date format. Please enter your date of birth in the format YYYY-MM-DD:')
+        return DOB
+
 
 async def ask_for_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("Entered ask_for_lang")
@@ -3538,8 +3563,8 @@ async def main() -> None:
             CommandHandler('register', start)
         ],
         states={
-        NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
-        DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
+        NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_for_dob)],
+        DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, validate_dob)],
         PAST_EXPERIENCES: [MessageHandler(filters.TEXT & ~filters.COMMAND, registration_text_handler)],
         CITIZENSHIP: [CallbackQueryHandler(citizenship_button)],
         RACE: [CallbackQueryHandler(race_button)],
