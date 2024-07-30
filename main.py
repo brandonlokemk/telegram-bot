@@ -244,8 +244,25 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     '''Displays help messages'''
     payload_url = html.escape(f"{URL}/submitpayload?user_id=<your user id>&payload=<payload>")
     await update.message.reply_html(
-        f"To check if the bot is still running, call <code>{URL}/healthcheck</code>.\n\n"
-        f"To post a custom update, call <code>{payload_url}</code>."
+        '''
+<u>Commands</u>
+Please use the below commands to check on the specific details, if you need help, contact admin @jojoweipop
+
+/start - Starts the bot
+/help - Provides help for the bot
+/register - Creates new agency or applicant profile
+/viewprofile - Displays your agency and applicant profiles
+/editprofile - Modifies one of your profiles
+/deleteprofile - Delete from a list of your profiles
+/purchase_tokens - Top Up account tokens
+/purchase_shortlists - Add more shortlist slots!
+/purchase_subscription - Top Up account tokens through a subscription plan
+/jobpost - Post a new job listing
+/jobrepost - Repost a previous job listing
+/get_chat_id - Displays your telegram Chat ID (to aid in troubleshooting issues)
+/shortlist - Shortlist applicants for your posted jobs
+/view_shortlisted - View detailed information of shortlisted candidates
+        '''
     )
 
 # Register command
