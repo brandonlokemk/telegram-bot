@@ -1365,13 +1365,17 @@ async def apply_button_handler(update: Update, context:ContextTypes.DEFAULT_TYPE
     results = await get_db(query_string)
     applicant_profiles = results
     keyboard = []
-    for applicant_id, applicant_name in applicant_profiles:
-        logger.info(applicant_id)
-        logger.info(applicant_name)
-        keyboard.append([InlineKeyboardButton(f"Applicant - {applicant_name}", callback_data=f"ja_{job_post_id}_{applicant_id}")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await context.bot.send_message(chat_id=chat_id, text=f"You are applying for Job ID {job_post_id}\n\nSelect the applicant profile you want to apply with:", reply_markup=reply_markup)
+    if not applicant_profiles:
+        await context.bot.send_message(chat_id=chat_id, text="You have no applicant profiles to apply for a job.\nYou can create one with the /register command!")
+
+    else:
+        for applicant_id, applicant_name in applicant_profiles:
+            logger.info(applicant_id)
+            logger.info(applicant_name)
+            keyboard.append([InlineKeyboardButton(f"Applicant - {applicant_name}", callback_data=f"ja_{job_post_id}_{applicant_id}")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await context.bot.send_message(chat_id=chat_id, text=f"You are applying for Job ID {job_post_id}\n\nSelect the applicant profile you want to apply with:", reply_markup=reply_markup)
 
 async def select_applicant_apply(update: Update, context:ContextTypes.DEFAULT_TYPE):
     '''
@@ -1407,8 +1411,8 @@ async def select_applicant_apply(update: Update, context:ContextTypes.DEFAULT_TY
         await query.edit_message_text("Sorry, that agency no longer exists")
     else:
         chat_id = results[0][0]
-        await context.bot.send_message(chat_id=chat_id, text=f"{applicant_name} has applied for Job {job_post_id}: {company_name} - {job_title}.\nPlease use the /shortlist command to shortlist applicants")
-        await query.edit_message_text(text=f"{applicant_name} has successfully applied for Job {job_post_id}!")
+        await context.bot.send_message(chat_id=chat_id, text=f"An applicant has applied for Job {job_post_id}: {company_name} - {job_title}.\nPlease use the /shortlist command to shortlist applicants")
+        await query.edit_message_text(text=f"{applicant_name} has successfully applied for Job {job_post_id}: {company_name} - {job_title}!")
 
 
 
