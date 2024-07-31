@@ -1657,7 +1657,7 @@ async def shortlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return SELECT_JOB
 
     # Display available jobs
-    keyboard = [[InlineKeyboardButton(f"{job[1]} - {job[2]}", callback_data=str(job[0]))] for job in job_posts]
+    keyboard = [[InlineKeyboardButton(f"{job[0]} - {job[1]} - {job[2]}", callback_data=str(job[0]))] for job in job_posts]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Select a job to shortlist applicants for:", reply_markup=reply_markup)
     return SELECT_JOB
