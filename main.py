@@ -1320,9 +1320,9 @@ async def draft_job_post_message(job_id, repost=False, part_time=False) -> str:
     results = await get_db(query_string)
     user_handle, chat_id, name, agency_name, agency_uen = results[0]
     # Draft message template
-    repost_prefix = "<b>[REPOST]</b>\n"
-    part_time_tag = "<b>[PART-TIME]</b>\n"
-    full_time_tag = "<b>[FULL-TIME]</b>\n"
+    repost_prefix = "<b>[REPOST]</b>"
+    part_time_tag = "<b>[PART-TIME]</b>"
+    full_time_tag = "<b>[FULL-TIME]</b>"
     tag = ''
     if (job_type == 'part'):
         part_time = True
@@ -1337,7 +1337,7 @@ async def draft_job_post_message(job_id, repost=False, part_time=False) -> str:
 <b><u>Job Post [ID: {job_id}]</u></b>\n{tag}\n
 <b>Company Name</b>:\n{company_name}\n
 <b>Industry</b>:\n{industry}\n
-<b>Job Title</b>:\n{job_title}\n\n
+<b>Job Title</b>:\n{job_title}\n
 <b>Date</b>:\n{date}\n
 <b>Time</b>:\n{time}\n
 <b>Basic Salary</b>:\n{basic_salary}\n
