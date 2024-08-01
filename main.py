@@ -2031,7 +2031,7 @@ VIEW_JOBS, VIEW_APPLICANTS = range(2)
 async def view_shortlisted(update: Update, context: CallbackContext) -> int:
     chat_id = update.effective_chat.id
     context.user_data['chat_id'] = chat_id
-
+    logger.info("view_shortlisted() called")
     # Retrieve agency IDs for the given chat_id
     query = "SELECT id FROM agencies WHERE chat_id = :chat_id"
     agency_ids = await safe_get_db(query, {"chat_id": chat_id})
@@ -2910,7 +2910,13 @@ async def forward_to_admin_for_acknowledgement(update: Update, context: ContextT
         query_string = "SELECT user_handle FROM user_data WHERE chat_id = :chat_id"
         params = {"chat_id": chat_id}
         results = await safe_get_db(query_string, params)
-        user_handle = results[0][0]
+        # user_handle = results[0][0]
+        # user_handle = results[0][0]
+        if not results: # from group chat idk?
+            logger.info("results are empty")
+            user_handle = chat_id
+        else:
+            user_handle = results[0][0]
         if isSubscription:
             # Get sub package details
             query_string = "SELECT sub_name, number_of_tokens, duration_months, price FROM subscription_packages WHERE subpkg_code = :subpkg_code"
