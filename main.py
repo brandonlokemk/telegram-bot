@@ -481,14 +481,36 @@ async def ask_for_whatsapp_number(update: Update, context: ContextTypes.DEFAULT_
 async def save_applicant(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("Entered save_applicant")
     context.user_data['whatsapp_number'] = update.message.text
-    async with AsyncSessionLocal() as conn:
-        await conn.execute(
-            sqlalchemy.text(
-        f"INSERT INTO applicants (user_handle, chat_id, name, dob, past_exp, citizenship, race, gender, education, lang_spoken, whatsapp_no) VALUES ('{context.user_data['user_handle']}','{context.user_data['chat_id']}', '{context.user_data['name']}', '{context.user_data['dob']}', '{context.user_data['past_experiences']}', '{context.user_data['citizenship']}', '{context.user_data['race']}', '{context.user_data['gender']}', '{context.user_data['highest_education']}', '{context.user_data['lang_spoken']}','{context.user_data['whatsapp_number']}')"
+    # async with AsyncSessionLocal() as conn:
+    #     await conn.execute(
+    #         sqlalchemy.text(
+    #     f"INSERT INTO applicants (user_handle, chat_id, name, dob, past_exp, citizenship, race, gender, education, lang_spoken, whatsapp_no) VALUES ('{context.user_data['user_handle']}','{context.user_data['chat_id']}', '{context.user_data['name']}', '{context.user_data['dob']}', '{context.user_data['past_experiences']}', '{context.user_data['citizenship']}', '{context.user_data['race']}', '{context.user_data['gender']}', '{context.user_data['highest_education']}', '{context.user_data['lang_spoken']}','{context.user_data['whatsapp_number']}')"
 
-    )
-        )
-        await conn.commit()
+    # )
+    #     )
+    #     await conn.commit()
+
+    params = {
+    "user_handle": context.user_data['user_handle'],
+    "chat_id": context.user_data['chat_id'],
+    "name": context.user_data['name'],
+    "dob": context.user_data['dob'],
+    "past_exp": context.user_data['past_experiences'],
+    "citizenship": context.user_data['citizenship'],
+    "race": context.user_data['race'],
+    "gender": context.user_data['gender'],
+    "education": context.user_data['highest_education'],
+    "lang_spoken": context.user_data['lang_spoken'],
+    "whatsapp_no": context.user_data['whatsapp_number']
+    }
+
+    query_string = """
+        INSERT INTO applicants (user_handle, chat_id, name, dob, past_exp, citizenship, race, gender, education, lang_spoken, whatsapp_no)
+        VALUES (:user_handle, :chat_id, :name, :dob, :past_exp, :citizenship, :race, :gender, :education, :lang_spoken, :whatsapp_no)
+    """
+
+    await safe_set_db(query_string, params)
+
     await update.message.reply_text('Registration successful!')
     return ConversationHandler.END
 
@@ -509,13 +531,28 @@ async def ask_for_company_uen(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def save_agency(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("Entered save_agency")
     context.user_data['company_uen'] = update.message.text
-    async with AsyncSessionLocal() as conn:
-        await conn.execute(
-            sqlalchemy.text(
-        f'''INSERT INTO agencies (user_handle, chat_id, name, agency_name, agency_uen) VALUES ("{context.user_data['user_handle']}", "{context.user_data['chat_id']}", "{context.user_data['full_name']}", "{context.user_data['company_name']}", "{context.user_data['company_uen']}")'''
-    )
-        )
-        await conn.commit()
+    # async with AsyncSessionLocal() as conn:
+    #     await conn.execute(
+    #         sqlalchemy.text(
+    #     f'''INSERT INTO agencies (user_handle, chat_id, name, agency_name, agency_uen) VALUES ("{context.user_data['user_handle']}", "{context.user_data['chat_id']}", "{context.user_data['full_name']}", "{context.user_data['company_name']}", "{context.user_data['company_uen']}")'''
+    # )
+    #     )
+    #     await conn.commit()
+
+    params = {
+    "user_handle": context.user_data['user_handle'],
+    "chat_id": context.user_data['chat_id'],
+    "name": context.user_data['full_name'],
+    "agency_name": context.user_data['company_name'],
+    "agency_uen": context.user_data['company_uen']
+}
+
+    query_string = """
+        INSERT INTO agencies (user_handle, chat_id, name, agency_name, agency_uen)
+        VALUES (:user_handle, :chat_id, :name, :agency_name, :agency_uen)
+    """
+
+    await safe_set_db(query_string, params)
     await update.message.reply_text('Registration successful!')
     return ConversationHandler.END
 
