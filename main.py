@@ -1371,13 +1371,13 @@ async def draft_job_post_message(job_id, repost=False, part_time=False) -> str:
         tag = full_time_tag
 
     message = f'''
-<b><u>Job Post [ID: {job_id}]</u></b>\n{tag}\n
-<b>Company Name</b>:\n{company_name}\n
+<b><u>Job Post [ID: {job_id}]</u></b>\n{tag}
+<b>Company Name</b>:\n{company_name}
 <b>Industry</b>:\n{industry}\n
 <b>Job Title</b>:\n{job_title}\n
-<b>Date</b>:\n{date}\n
-<b>Time</b>:\n{time}\n
-<b>Basic Salary</b>:\n{basic_salary}\n
+<b>Date</b>:\n{date}
+<b>Time</b>:\n{time}
+<b>Basic Salary</b>:\n{basic_salary}
 <b>Commissions & Targets</b>:\n{commissions}\n
 <b>Job Scope</b>:\n{job_scope}\n
 '''
