@@ -1477,16 +1477,57 @@ async def save_jobpost(user_data):
     Saves job in DB and returns ID of new entry
     '''
     # logger.info(f"QUERY: INSERT INTO job_posts (agency_id, job_title, company_industry, date_time, pay_rate, job_scope, shortlist) VALUES ('{user_data['agency_id']}', '{user_data['jobpost_job_title']}', '{user_data['jobpost_company_industry']}', '{user_data['jobpost_date_time']}', '{user_data['jobpost_pay_rate']}', '{user_data['jobpost_job_scope']}', '0')")
-    async with AsyncSessionLocal() as conn:
-        result = await conn.execute(
-            sqlalchemy.text(
-        f"INSERT INTO job_posts (agency_id, job_type, company_name, industry, job_title, date, time, basic_salary, commissions, job_scope, other_req, shortlist) VALUES ('{user_data['agency_id']}','{user_data['jobpost_job_type']}', '{user_data['jobpost_company']}', '{user_data['jobpost_industry']}', '{user_data['jobpost_job_title']}', '{user_data['jobpost_date']}', '{user_data['jobpost_time']}','{user_data['jobpost_basic_salary']}' ,'{user_data['jobpost_commission']}','{user_data['jobpost_job_scope']}','{user_data['jobpost_other_req']}', '0')"
-    )
+     # Insert the job post using safe_set_db
+    query_string = """
+        INSERT INTO job_posts (
+            agency_id, job_type, company_name, industry, job_title, date, time, 
+            basic_salary, commissions, job_scope, other_req, shortlist
+        ) 
+        VALUES (
+            :agency_id, :job_type, :company_name, :industry, :job_title, :date, :time, 
+            :basic_salary, :commissions, :job_scope, :other_req, :shortlist
         )
-        await conn.commit()
-        result = await conn.execute(sqlalchemy.text("SELECT LAST_INSERT_ID()"))
-        job_id = result.scalar_one()
-        return job_id
+    """
+    params = {
+        'agency_id': user_data['agency_id'],
+        'job_type': user_data['jobpost_job_type'],
+        'company_name': user_data['jobpost_company'],
+        'industry': user_data['jobpost_industry'],
+        'job_title': user_data['jobpost_job_title'],
+        'date': user_data['jobpost_date'],
+        'time': user_data['jobpost_time'],
+        'basic_salary': user_data['jobpost_basic_salary'],
+        'commissions': user_data['jobpost_commission'],
+        'job_scope': user_data['jobpost_job_scope'],
+        'other_req': user_data['jobpost_other_req'],
+        'shortlist': 0  # Default value for shortlist
+    }
+
+    # Execute the insert query
+    insert_success = await safe_set_db(query_string, params)
+    if not insert_success:
+        return None  # Return None or handle error if insertion fails
+
+    # Retrieve the last inserted job_id
+    try:
+        async with AsyncSessionLocal() as conn:
+            result = await conn.execute(sqlalchemy.text("SELECT LAST_INSERT_ID()"))
+            job_id = result.scalar_one()
+            return job_id
+    except Exception as e:
+        logger.error(f"Error retrieving last insert ID: {e}")
+        return None
+
+    # async with AsyncSessionLocal() as conn:
+    #     result = await conn.execute(
+    #         sqlalchemy.text(
+    #     f"INSERT INTO job_posts (agency_id, job_type, company_name, industry, job_title, date, time, basic_salary, commissions, job_scope, other_req, shortlist) VALUES ('{user_data['agency_id']}','{user_data['jobpost_job_type']}', '{user_data['jobpost_company']}', '{user_data['jobpost_industry']}', '{user_data['jobpost_job_title']}', '{user_data['jobpost_date']}', '{user_data['jobpost_time']}','{user_data['jobpost_basic_salary']}' ,'{user_data['jobpost_commission']}','{user_data['jobpost_job_scope']}','{user_data['jobpost_other_req']}', '0')"
+    # )
+    #     )
+    #     await conn.commit()
+    #     result = await conn.execute(sqlalchemy.text("SELECT LAST_INSERT_ID()"))
+    #     job_id = result.scalar_one()
+    #     return job_id
 
 ###########################################################################################################################################################   
 # Purchasing shortlists
