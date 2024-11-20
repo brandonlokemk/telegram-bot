@@ -2106,6 +2106,11 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 VIEW_JOBS, VIEW_APPLICANTS = range(2)
 #TODO add job id to when u view job to shortlist for
 # Function to handle /view_shortlisted command
+async def handle_pagination(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    await query.answer()  # Acknowledge the callback
+    page = int(query.data.split('_')[1])
+    return await view_shortlisted(update, context, page=page)
 PAGE_SIZE = 5
 async def view_shortlisted(update: Update, context: CallbackContext, page=0) -> int:
     chat_id = update.effective_chat.id
@@ -3937,13 +3942,27 @@ async def main() -> None:
     )
     application.add_handler(shortlist_handler)
 
-    
+####
+# conv_handler = ConversationHandler(
+#     entry_points=[CommandHandler('view_shortlisted', view_shortlisted)],
+#     states={
+#         VIEW_JOBS: [
+#             CallbackQueryHandler(handle_pagination, pattern=r"^page_\d+$"),
+#             # Add other handlers for specific job selection, etc.
+#         ],
+#     },
+#     fallbacks=[CallbackQueryHandler(cancel_handler, pattern="^cancel_view_shortlisted$")],
+# )
+
+####
+
 
 # Viewing shortlisted applicants convo handler
     view_shortlisted_handler = ConversationHandler(
     entry_points=[CommandHandler('view_shortlisted', view_shortlisted)],
     states={
         VIEW_JOBS: [
+                CallbackQueryHandler(handle_pagination, pattern=r"^page_\d+$"),
                 CallbackQueryHandler(view_applicants, pattern='view_applicants_'),
                 CallbackQueryHandler(cancel_view_shortlisted, pattern='^cancel_view_shortlisted')]
     },
