@@ -2106,10 +2106,12 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 VIEW_JOBS, VIEW_APPLICANTS = range(2)
 #TODO add job id to when u view job to shortlist for
 # Function to handle /view_shortlisted command
-async def view_shortlisted(update: Update, context: CallbackContext) -> int:
+PAGE_SIZE = 5
+async def view_shortlisted(update: Update, context: CallbackContext, page=0) -> int:
     chat_id = update.effective_chat.id
     context.user_data['chat_id'] = chat_id
     logger.info("view_shortlisted() called")
+    
     # Retrieve agency IDs for the given chat_id
     query = "SELECT id FROM agencies WHERE chat_id = :chat_id"
     agency_ids = await safe_get_db(query, {"chat_id": chat_id})
@@ -2128,15 +2130,78 @@ async def view_shortlisted(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text("No jobs found for your agencies.")
         return ConversationHandler.END
 
-    # Create buttons for each job
-    keyboard = [[InlineKeyboardButton(f"{job_title} - {company_industry}", callback_data=f"view_applicants_{job_id}")]
-                for job_id, job_title, company_industry in jobs_result]
+    # Paginate jobs
+    start = page * PAGE_SIZE
+    end = start + PAGE_SIZE
+    paginated_jobs = jobs_result[start:end]
+
+    # Create buttons for the paginated jobs
+    keyboard = [
+        [InlineKeyboardButton(f"{job_title} - {company_industry}", callback_data=f"view_applicants_{job_id}")]
+        for job_id, job_title, company_industry in paginated_jobs
+    ]
+
+    # Add navigation buttons
+    if page > 0:
+        keyboard.append([InlineKeyboardButton("Previous", callback_data=f"page_{page-1}")])
+    if end < len(jobs_result):
+        keyboard.append([InlineKeyboardButton("Next", callback_data=f"page_{page+1}")])
     keyboard.append([InlineKeyboardButton("Cancel", callback_data="cancel_view_shortlisted")])
+
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    view_shortlist_message = await update.message.reply_text("Select a job to view shortlisted applicants:", reply_markup=reply_markup)
-    context.user_data['view_shortlist_message_id'] = view_shortlist_message.id
+    # Edit existing message or send a new one
+    if 'view_shortlist_message_id' in context.user_data:
+        message_id = context.user_data['view_shortlist_message_id']
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text="Select a job to view shortlisted applicants:",
+            reply_markup=reply_markup
+        )
+    else:
+        view_shortlist_message = await update.message.reply_text(
+            "Select a job to view shortlisted applicants:", reply_markup=reply_markup
+        )
+        context.user_data['view_shortlist_message_id'] = view_shortlist_message.message_id
+
     return VIEW_JOBS
+
+
+
+
+
+# async def view_shortlisted(update: Update, context: CallbackContext) -> int:
+#     chat_id = update.effective_chat.id
+#     context.user_data['chat_id'] = chat_id
+#     logger.info("view_shortlisted() called")
+#     # Retrieve agency IDs for the given chat_id
+#     query = "SELECT id FROM agencies WHERE chat_id = :chat_id"
+#     agency_ids = await safe_get_db(query, {"chat_id": chat_id})
+
+#     if not agency_ids:
+#         await update.message.reply_text("No agencies found for your chat ID.")
+#         return ConversationHandler.END
+    
+#     agency_ids = [row[0] for row in agency_ids]
+
+#     # Retrieve job titles and industries for the agency_id(s) from the job_posts table
+#     query = "SELECT id, job_title, company_name FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
+#     jobs_result = await safe_get_db(query, {"agency_ids": tuple(agency_ids)})
+
+#     if not jobs_result:
+#         await update.message.reply_text("No jobs found for your agencies.")
+#         return ConversationHandler.END
+
+#     # Create buttons for each job
+#     keyboard = [[InlineKeyboardButton(f"{job_title} - {company_industry}", callback_data=f"view_applicants_{job_id}")]
+#                 for job_id, job_title, company_industry in jobs_result]
+#     keyboard.append([InlineKeyboardButton("Cancel", callback_data="cancel_view_shortlisted")])
+#     reply_markup = InlineKeyboardMarkup(keyboard)
+
+#     view_shortlist_message = await update.message.reply_text("Select a job to view shortlisted applicants:", reply_markup=reply_markup)
+#     context.user_data['view_shortlist_message_id'] = view_shortlist_message.id
+#     return VIEW_JOBS
 
 # Function to handle job selection and show applicants
 async def view_applicants(update: Update, context: CallbackContext) -> int:
