@@ -2111,13 +2111,12 @@ async def handle_pagination(update: Update, context: CallbackContext) -> int:
     await query.answer()  # Acknowledge the callback
     page = int(query.data.split('_')[1])
     return await view_shortlisted(update, context, page=page)
-PAGE_SIZE = 5
 async def view_shortlisted(update: Update, context: CallbackContext, page=0) -> int:
     chat_id = update.effective_chat.id
     context.user_data['chat_id'] = chat_id
     logger.info("view_shortlisted() called")
-    
-    # Retrieve agency IDs for the given chat_id
+
+    # Fetch jobs from db
     query = "SELECT id FROM agencies WHERE chat_id = :chat_id"
     agency_ids = await safe_get_db(query, {"chat_id": chat_id})
 
@@ -2127,7 +2126,6 @@ async def view_shortlisted(update: Update, context: CallbackContext, page=0) -> 
     
     agency_ids = [row[0] for row in agency_ids]
 
-    # Retrieve job titles and industries for the agency_id(s) from the job_posts table
     query = "SELECT id, job_title, company_name FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
     jobs_result = await safe_get_db(query, {"agency_ids": tuple(agency_ids)})
 
@@ -2135,15 +2133,19 @@ async def view_shortlisted(update: Update, context: CallbackContext, page=0) -> 
         await update.message.reply_text("No jobs found for your agencies.")
         return ConversationHandler.END
 
+    # Cache the results in user data
+    context.user_data["jobs_result"] = jobs_result
+    
     # Paginate jobs
+    PAGE_SIZE = 5
     start = page * PAGE_SIZE
     end = start + PAGE_SIZE
     paginated_jobs = jobs_result[start:end]
 
     # Create buttons for the paginated jobs
     keyboard = [
-        [InlineKeyboardButton(f"{job_title} - {company_industry}", callback_data=f"view_applicants_{job_id}")]
-        for job_id, job_title, company_industry in paginated_jobs
+        [InlineKeyboardButton(f"{job_title} - {company_name}", callback_data=f"view_applicants_{job_id}")]
+        for job_id, job_title, company_name in paginated_jobs
     ]
 
     # Add navigation buttons
@@ -2155,7 +2157,7 @@ async def view_shortlisted(update: Update, context: CallbackContext, page=0) -> 
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Edit existing message or send a new one
+    # Edit or send the message
     if 'view_shortlist_message_id' in context.user_data:
         message_id = context.user_data['view_shortlist_message_id']
         await context.bot.edit_message_text(
@@ -2171,6 +2173,7 @@ async def view_shortlisted(update: Update, context: CallbackContext, page=0) -> 
         context.user_data['view_shortlist_message_id'] = view_shortlist_message.message_id
 
     return VIEW_JOBS
+
 
 
 
