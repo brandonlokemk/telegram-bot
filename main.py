@@ -85,6 +85,7 @@ BOT_TOKEN = os.environ['BOT_TOKEN'] # nosec B105
 JOB_POST_PRICE = 70
 PART_JOB_POST_PRICE = 45
 JOB_REPOST_PRICE = 30
+JOB_EXPIRY_DAYS = 30
 
 # initialize Connector object
 connector = Connector()
@@ -1416,6 +1417,19 @@ async def apply_button_handler(update: Update, context:ContextTypes.DEFAULT_TYPE
         job_post_id = query_data.split('_')[1]
     chat_id = query.from_user.id
     logger.info(f"Apply button clicked by {chat_id}")
+    # Check if job post still exists
+    query = '''
+    SELECT EXISTS (
+        SELECT 1
+        FROM job_posts
+        WHERE id = :job_id
+    ) AS job_exists;'''
+    result = await safe_get_db(query, {"job_id": job_post_id})
+    if result and result[0]['job_exists']:
+        pass
+    else:
+        await context.bot.send_message(chat_id=chat_id, text=f"Job does not exist! It could have expired if it was posted more than {JOB_EXPIRY_DAYS} days ago!")
+
     # Choose applicant profile to apply for job
     query_string = f'''SELECT id,name FROM applicants WHERE chat_id = "{chat_id}"'''
     results = await get_db(query_string)
