@@ -85,6 +85,7 @@ BOT_TOKEN = os.environ['BOT_TOKEN'] # nosec B105
 JOB_POST_PRICE = 70
 PART_JOB_POST_PRICE = 45
 JOB_REPOST_PRICE = 30
+JOB_EXPIRY_DAYS = 30
 
 # initialize Connector object
 connector = Connector()
@@ -1416,6 +1417,19 @@ async def apply_button_handler(update: Update, context:ContextTypes.DEFAULT_TYPE
         job_post_id = query_data.split('_')[1]
     chat_id = query.from_user.id
     logger.info(f"Apply button clicked by {chat_id}")
+    # Check if job post still exists
+    query = '''
+    SELECT EXISTS (
+        SELECT 1
+        FROM job_posts
+        WHERE id = :job_id
+    ) AS job_exists;'''
+    result = await safe_get_db(query, {"job_id": job_post_id})
+    if result and result[0]['job_exists']:
+        pass
+    else:
+        await context.bot.send_message(chat_id=chat_id, text=f"Job does not exist! It could have expired if it was posted more than {JOB_EXPIRY_DAYS} days ago!")
+
     # Choose applicant profile to apply for job
     query_string = f'''SELECT id,name FROM applicants WHERE chat_id = "{chat_id}"'''
     results = await get_db(query_string)
@@ -1477,16 +1491,57 @@ async def save_jobpost(user_data):
     Saves job in DB and returns ID of new entry
     '''
     # logger.info(f"QUERY: INSERT INTO job_posts (agency_id, job_title, company_industry, date_time, pay_rate, job_scope, shortlist) VALUES ('{user_data['agency_id']}', '{user_data['jobpost_job_title']}', '{user_data['jobpost_company_industry']}', '{user_data['jobpost_date_time']}', '{user_data['jobpost_pay_rate']}', '{user_data['jobpost_job_scope']}', '0')")
-    async with AsyncSessionLocal() as conn:
-        result = await conn.execute(
-            sqlalchemy.text(
-        f"INSERT INTO job_posts (agency_id, job_type, company_name, industry, job_title, date, time, basic_salary, commissions, job_scope, other_req, shortlist) VALUES ('{user_data['agency_id']}','{user_data['jobpost_job_type']}', '{user_data['jobpost_company']}', '{user_data['jobpost_industry']}', '{user_data['jobpost_job_title']}', '{user_data['jobpost_date']}', '{user_data['jobpost_time']}','{user_data['jobpost_basic_salary']}' ,'{user_data['jobpost_commission']}','{user_data['jobpost_job_scope']}','{user_data['jobpost_other_req']}', '0')"
-    )
+     # Insert the job post using safe_set_db
+    query_string = """
+        INSERT INTO job_posts (
+            agency_id, job_type, company_name, industry, job_title, date, time, 
+            basic_salary, commissions, job_scope, other_req, shortlist
+        ) 
+        VALUES (
+            :agency_id, :job_type, :company_name, :industry, :job_title, :date, :time, 
+            :basic_salary, :commissions, :job_scope, :other_req, :shortlist
         )
-        await conn.commit()
-        result = await conn.execute(sqlalchemy.text("SELECT LAST_INSERT_ID()"))
-        job_id = result.scalar_one()
-        return job_id
+    """
+    params = {
+        'agency_id': user_data['agency_id'],
+        'job_type': user_data['jobpost_job_type'],
+        'company_name': user_data['jobpost_company'],
+        'industry': user_data['jobpost_industry'],
+        'job_title': user_data['jobpost_job_title'],
+        'date': user_data['jobpost_date'],
+        'time': user_data['jobpost_time'],
+        'basic_salary': user_data['jobpost_basic_salary'],
+        'commissions': user_data['jobpost_commission'],
+        'job_scope': user_data['jobpost_job_scope'],
+        'other_req': user_data['jobpost_other_req'],
+        'shortlist': 0  # Default value for shortlist
+    }
+
+    # Execute the insert query
+    insert_success = await safe_set_db(query_string, params)
+    if not insert_success:
+        return None  # Return None or handle error if insertion fails
+
+    # Retrieve the last inserted job_id
+    try:
+        async with AsyncSessionLocal() as conn:
+            result = await conn.execute(sqlalchemy.text("SELECT LAST_INSERT_ID()"))
+            job_id = result.scalar_one()
+            return job_id
+    except Exception as e:
+        logger.error(f"Error retrieving last insert ID: {e}")
+        return None
+
+    # async with AsyncSessionLocal() as conn:
+    #     result = await conn.execute(
+    #         sqlalchemy.text(
+    #     f"INSERT INTO job_posts (agency_id, job_type, company_name, industry, job_title, date, time, basic_salary, commissions, job_scope, other_req, shortlist) VALUES ('{user_data['agency_id']}','{user_data['jobpost_job_type']}', '{user_data['jobpost_company']}', '{user_data['jobpost_industry']}', '{user_data['jobpost_job_title']}', '{user_data['jobpost_date']}', '{user_data['jobpost_time']}','{user_data['jobpost_basic_salary']}' ,'{user_data['jobpost_commission']}','{user_data['jobpost_job_scope']}','{user_data['jobpost_other_req']}', '0')"
+    # )
+    #     )
+    #     await conn.commit()
+    #     result = await conn.execute(sqlalchemy.text("SELECT LAST_INSERT_ID()"))
+    #     job_id = result.scalar_one()
+    #     return job_id
 
 ###########################################################################################################################################################   
 # Purchasing shortlists
@@ -2065,11 +2120,17 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 VIEW_JOBS, VIEW_APPLICANTS = range(2)
 #TODO add job id to when u view job to shortlist for
 # Function to handle /view_shortlisted command
-async def view_shortlisted(update: Update, context: CallbackContext) -> int:
+async def handle_pagination(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    await query.answer()  # Acknowledge the callback
+    page = int(query.data.split('_')[1])
+    return await view_shortlisted(update, context, page=page)
+async def view_shortlisted(update: Update, context: CallbackContext, page=0) -> int:
     chat_id = update.effective_chat.id
     context.user_data['chat_id'] = chat_id
     logger.info("view_shortlisted() called")
-    # Retrieve agency IDs for the given chat_id
+
+    # Fetch jobs from db
     query = "SELECT id FROM agencies WHERE chat_id = :chat_id"
     agency_ids = await safe_get_db(query, {"chat_id": chat_id})
 
@@ -2079,7 +2140,6 @@ async def view_shortlisted(update: Update, context: CallbackContext) -> int:
     
     agency_ids = [row[0] for row in agency_ids]
 
-    # Retrieve job titles and industries for the agency_id(s) from the job_posts table
     query = "SELECT id, job_title, company_name FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
     jobs_result = await safe_get_db(query, {"agency_ids": tuple(agency_ids)})
 
@@ -2087,15 +2147,83 @@ async def view_shortlisted(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text("No jobs found for your agencies.")
         return ConversationHandler.END
 
-    # Create buttons for each job
-    keyboard = [[InlineKeyboardButton(f"{job_title} - {company_industry}", callback_data=f"view_applicants_{job_id}")]
-                for job_id, job_title, company_industry in jobs_result]
+    # Cache the results in user data
+    context.user_data["jobs_result"] = jobs_result
+    
+    # Paginate jobs
+    PAGE_SIZE = 5
+    start = page * PAGE_SIZE
+    end = start + PAGE_SIZE
+    paginated_jobs = jobs_result[start:end]
+
+    # Create buttons for the paginated jobs
+    keyboard = [
+        [InlineKeyboardButton(f"{job_title} - {company_name}", callback_data=f"view_applicants_{job_id}")]
+        for job_id, job_title, company_name in paginated_jobs
+    ]
+
+    # Add navigation buttons
+    if page > 0:
+        keyboard.append([InlineKeyboardButton("Previous", callback_data=f"page_{page-1}")])
+    if end < len(jobs_result):
+        keyboard.append([InlineKeyboardButton("Next", callback_data=f"page_{page+1}")])
     keyboard.append([InlineKeyboardButton("Cancel", callback_data="cancel_view_shortlisted")])
+
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    view_shortlist_message = await update.message.reply_text("Select a job to view shortlisted applicants:", reply_markup=reply_markup)
-    context.user_data['view_shortlist_message_id'] = view_shortlist_message.id
+    # Edit or send the message
+    if 'view_shortlist_message_id' in context.user_data:
+        message_id = context.user_data['view_shortlist_message_id']
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text="Select a job to view shortlisted applicants:",
+            reply_markup=reply_markup
+        )
+    else:
+        view_shortlist_message = await update.message.reply_text(
+            "Select a job to view shortlisted applicants:", reply_markup=reply_markup
+        )
+        context.user_data['view_shortlist_message_id'] = view_shortlist_message.message_id
+
     return VIEW_JOBS
+
+
+
+
+
+
+# async def view_shortlisted(update: Update, context: CallbackContext) -> int:
+#     chat_id = update.effective_chat.id
+#     context.user_data['chat_id'] = chat_id
+#     logger.info("view_shortlisted() called")
+#     # Retrieve agency IDs for the given chat_id
+#     query = "SELECT id FROM agencies WHERE chat_id = :chat_id"
+#     agency_ids = await safe_get_db(query, {"chat_id": chat_id})
+
+#     if not agency_ids:
+#         await update.message.reply_text("No agencies found for your chat ID.")
+#         return ConversationHandler.END
+    
+#     agency_ids = [row[0] for row in agency_ids]
+
+#     # Retrieve job titles and industries for the agency_id(s) from the job_posts table
+#     query = "SELECT id, job_title, company_name FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
+#     jobs_result = await safe_get_db(query, {"agency_ids": tuple(agency_ids)})
+
+#     if not jobs_result:
+#         await update.message.reply_text("No jobs found for your agencies.")
+#         return ConversationHandler.END
+
+#     # Create buttons for each job
+#     keyboard = [[InlineKeyboardButton(f"{job_title} - {company_industry}", callback_data=f"view_applicants_{job_id}")]
+#                 for job_id, job_title, company_industry in jobs_result]
+#     keyboard.append([InlineKeyboardButton("Cancel", callback_data="cancel_view_shortlisted")])
+#     reply_markup = InlineKeyboardMarkup(keyboard)
+
+#     view_shortlist_message = await update.message.reply_text("Select a job to view shortlisted applicants:", reply_markup=reply_markup)
+#     context.user_data['view_shortlist_message_id'] = view_shortlist_message.id
+#     return VIEW_JOBS
 
 # Function to handle job selection and show applicants
 async def view_applicants(update: Update, context: CallbackContext) -> int:
@@ -3831,13 +3959,27 @@ async def main() -> None:
     )
     application.add_handler(shortlist_handler)
 
-    
+####
+# conv_handler = ConversationHandler(
+#     entry_points=[CommandHandler('view_shortlisted', view_shortlisted)],
+#     states={
+#         VIEW_JOBS: [
+#             CallbackQueryHandler(handle_pagination, pattern=r"^page_\d+$"),
+#             # Add other handlers for specific job selection, etc.
+#         ],
+#     },
+#     fallbacks=[CallbackQueryHandler(cancel_handler, pattern="^cancel_view_shortlisted$")],
+# )
+
+####
+
 
 # Viewing shortlisted applicants convo handler
     view_shortlisted_handler = ConversationHandler(
     entry_points=[CommandHandler('view_shortlisted', view_shortlisted)],
     states={
         VIEW_JOBS: [
+                CallbackQueryHandler(handle_pagination, pattern=r"^page_\d+$"),
                 CallbackQueryHandler(view_applicants, pattern='view_applicants_'),
                 CallbackQueryHandler(cancel_view_shortlisted, pattern='^cancel_view_shortlisted')]
     },
