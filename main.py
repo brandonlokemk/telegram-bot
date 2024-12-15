@@ -1425,11 +1425,11 @@ async def apply_button_handler(update: Update, context:ContextTypes.DEFAULT_TYPE
         WHERE id = :job_id
     ) AS job_exists;'''
     result = await safe_get_db(query, {"job_id": job_post_id})
-    if result and result[0]['job_exists']:
+    if result and result[0][0]:
         pass
     else:
         await context.bot.send_message(chat_id=chat_id, text=f"Job does not exist! It could have expired if it was posted more than {JOB_EXPIRY_DAYS} days ago!")
-
+        return
     # Choose applicant profile to apply for job
     query_string = f'''SELECT id,name FROM applicants WHERE chat_id = "{chat_id}"'''
     results = await get_db(query_string)
@@ -1437,7 +1437,6 @@ async def apply_button_handler(update: Update, context:ContextTypes.DEFAULT_TYPE
     keyboard = []
     if not applicant_profiles:
         await context.bot.send_message(chat_id=chat_id, text="You have no applicant profiles to apply for a job.\nYou can create one with the /register command!")
-
     else:
         for applicant_id, applicant_name in applicant_profiles:
             logger.info(applicant_id)
@@ -2062,6 +2061,7 @@ async def shortlist_applicant(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     # Remove the applicant from the list of remaining applicants
     remaining_applicants = context.user_data.get('remaining_applicants', [])
+    logger.info(f'Removing {applicant_id} from {remaining_applicants}')
     remaining_applicants.remove(applicant_id)
     context.user_data['remaining_applicants'] = remaining_applicants
     
@@ -2125,6 +2125,7 @@ async def handle_pagination(update: Update, context: CallbackContext) -> int:
     await query.answer()  # Acknowledge the callback
     page = int(query.data.split('_')[1])
     return await view_shortlisted(update, context, page=page)
+
 async def view_shortlisted(update: Update, context: CallbackContext, page=0) -> int:
     chat_id = update.effective_chat.id
     context.user_data['chat_id'] = chat_id
@@ -2188,8 +2189,8 @@ async def view_shortlisted(update: Update, context: CallbackContext, page=0) -> 
 
     return VIEW_JOBS
 
-
-
+# Remove job posting
+# async def remove_job_post()
 
 
 
@@ -3618,6 +3619,9 @@ async def daily_checks(bot):
             # notify users that their credits have expired (send to admin as well)
             await bot.send_message(chat_id=chat_id, text=f"{expiring_tokens} tokens have expired today!\n\nTo purchase more tokens, please use the /purchase_tokens command!")
             await bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"{expiring_tokens} tokens has expired from {user_handle}'s account.")
+            
+            # Remove expired job posts
+            
     except Exception as e:
         logger.info(e)
     # check active subscriptions
