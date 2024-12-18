@@ -1704,12 +1704,22 @@ async def shortlist_cancel(update: Update, context: CallbackContext) -> int:
 SELECT_JOB, SHOW_APPLICANTS, DONE, PURCHASE_SHORTLISTS, CHOOSE_AMOUNT, CONFIRM_PURCHASE  = range(6)
 
 # Function to start the shortlisting process
+# Constants
+JOBS_PER_PAGE = 5  # Limit the number of jobs per page
+
+# Start the shortlisting process
 async def shortlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("Entered shortlist function")
     chat_id = update.effective_chat.id
     context.user_data['chat_id'] = chat_id
 
-    # Retrieve agency_id(s) for this chat_id from the agencies table
+    # Check if jobs are already cached
+    if 'job_posts' in context.user_data:
+        logger.info("Using cached job posts.")
+        context.user_data['current_page'] = 0  # Reset to the first page
+        return await show_job_page(update, context)
+
+    # Retrieve agency_id(s) for this chat_id
     query = "SELECT id FROM agencies WHERE chat_id = :chat_id"
     agency_ids = await safe_get_db(query, {"chat_id": chat_id})
 
@@ -1719,7 +1729,7 @@ async def shortlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     agency_ids = [row[0] for row in agency_ids]
 
-    # Retrieve job titles and industries for the agency_id(s) from the job_posts table
+    # Retrieve job titles and industries for the agency_id(s)
     query = "SELECT id, job_title, company_name FROM job_posts WHERE agency_id IN :agency_ids AND status = 'approved'"
     job_posts = await safe_get_db(query, {"agency_ids": tuple(agency_ids)})
 
@@ -1727,31 +1737,70 @@ async def shortlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await update.message.reply_text("No job posts found for your agencies. To post a job, type /jobpost")
         return ConversationHandler.END
 
-    # Retrieve shortlist balance
-    query_shortlists = "SELECT shortlist FROM shortlist_balance WHERE chat_id = :chat_id"
-    shortlists_result = await safe_get_db(query_shortlists, {"chat_id": chat_id})
-    shortlists = shortlists_result[0][0] if shortlists_result else 0
-    context.user_data['shortlists'] = shortlists
+    # Cache job posts and initialize pagination
+    context.user_data['job_posts'] = job_posts
+    context.user_data['current_page'] = 0  # Start with the first page
 
-    # Check if shortlists are zero
-    if shortlists <= 0:
-        keyboard = [
-            [InlineKeyboardButton("Proceed to view", callback_data="proceed")],
-            [InlineKeyboardButton("Cancel", callback_data="cancel")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            "You have no shortlists available.\n\nYou can only view the applicants details but not shortlist them.\n\n"
-            "Please purchase more at /purchase_shortlists if you need to shortlist applicants.",
-            reply_markup=reply_markup
-        )
-        return SELECT_JOB
+    return await show_job_page(update, context)
 
-    # Display available jobs
-    keyboard = [[InlineKeyboardButton(f"{job[0]} - {job[1]} - {job[2]}", callback_data=str(job[0]))] for job in job_posts]
+
+# Display a specific page of jobs
+async def show_job_page(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Helper function to display a specific page of jobs."""
+    job_posts = context.user_data.get('job_posts', [])
+    current_page = context.user_data.get('current_page', 0)
+
+    if not job_posts:
+        await update.message.reply_text("No job posts available.")
+        return ConversationHandler.END
+
+    # Paginate jobs
+    start_index = current_page * JOBS_PER_PAGE
+    end_index = start_index + JOBS_PER_PAGE
+    page_jobs = job_posts[start_index:end_index]
+
+    # Create job buttons
+    keyboard = [
+        [InlineKeyboardButton(f"{job[1]} - {job[2]}", callback_data=str(job[0]))] for job in page_jobs
+    ]
+
+    # Add navigation buttons
+    navigation_buttons = []
+    if current_page > 0:
+        navigation_buttons.append(InlineKeyboardButton("⬅️ Previous", callback_data="prev_page"))
+    if end_index < len(job_posts):
+        navigation_buttons.append(InlineKeyboardButton("Next ➡️", callback_data="next_page"))
+    if navigation_buttons:
+        keyboard.append(navigation_buttons)
+
+    # Add a cancel button
+    keyboard.append([InlineKeyboardButton("Cancel", callback_data="cancel")])
+
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Select a job to shortlist applicants for:", reply_markup=reply_markup)
+    await update.message.reply_text(
+        f"Page {current_page + 1}/{(len(job_posts) + JOBS_PER_PAGE - 1) // JOBS_PER_PAGE}:\nSelect a job to shortlist applicants for:",
+        reply_markup=reply_markup
+    )
     return SELECT_JOB
+
+
+# Handle navigation between pages
+async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handles navigation between pages."""
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "next_page":
+        context.user_data['current_page'] += 1
+    elif query.data == "prev_page":
+        context.user_data['current_page'] -= 1
+    elif query.data == "cancel":
+        await query.edit_message_text("Action canceled.")
+        return ConversationHandler.END
+
+    # Show the updated page
+    return await show_job_page(update, context)
+
 
 # Function to handle job selection
 async def select_job(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
