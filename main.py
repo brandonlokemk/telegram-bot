@@ -3987,7 +3987,7 @@ async def main() -> None:
         entry_points=[CommandHandler('shortlist', shortlist)],
         states={
             SELECT_JOB: [
-                CallbackQueryHandler(handle_navigation, pattern="^(prev_page|next_page|cancel)$"),
+                CallbackQueryHandler(handle_navigation, pattern=r"^page_\d+$"),
                 CallbackQueryHandler(select_job, pattern='^\d+$'),  # Job selection
                 CallbackQueryHandler(select_job, pattern='^proceed$'),  # Proceed action
                 CallbackQueryHandler(select_job, pattern='^cancel$')  # Cancel action
