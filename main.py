@@ -42,6 +42,7 @@ from asgiref.wsgi import WsgiToAsgi
 from flask import Flask, Response, abort, make_response, request
 from telegram import Update, Message, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, InputFile
 from telegram.constants import ParseMode
+import telegram.error
 from telegram.ext import (
     Application,
     CallbackContext,
@@ -1704,7 +1705,7 @@ async def shortlist_cancel(update: Update, context: CallbackContext) -> int:
 SELECT_JOB, SHOW_APPLICANTS, DONE, PURCHASE_SHORTLISTS, CHOOSE_AMOUNT, CONFIRM_PURCHASE  = range(6)
 # Function to start the shortlisting process
 # Function to start the shortlisting process
-async def shortlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def shortlist(update: Update, context: ContextTypes.DEFAULT_TYPE, page=0) -> int:
     logger.info("Entered shortlist function")
     chat_id = update.effective_chat.id
     context.user_data['chat_id'] = chat_id
@@ -1729,57 +1730,59 @@ async def shortlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     # Cache the job posts and initialize pagination
     context.user_data['job_posts'] = job_posts
-    context.user_data['current_page'] = 0
-
-    return await show_job_page(update, context)
-
-
-# Display a specific page of jobs
-async def show_job_page(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    job_posts = context.user_data.get('job_posts', [])
-    current_page = context.user_data.get('current_page', 0)
-
-    if not job_posts:
-        await update.message.reply_text("No job posts available.")
-        return ConversationHandler.END
 
     # Paginate jobs
     PAGE_SIZE = 5
-    start_index = current_page * PAGE_SIZE
-    end_index = start_index + PAGE_SIZE
-    paginated_jobs = job_posts[start_index:end_index]
+    start = page * PAGE_SIZE
+    end = start + PAGE_SIZE
+    paginated_jobs = job_posts[start:end]
 
     # Create job buttons
     keyboard = [
-        [InlineKeyboardButton(f"{job[0]} - {job[1]} - {job[2]}", callback_data=str(job[0]))] for job in paginated_jobs
+        [InlineKeyboardButton(f"{job[1]} - {job[2]}", callback_data=str(job[0]))] for job in paginated_jobs
     ]
 
     # Add navigation buttons
-    if current_page > 0:
-        keyboard.append([InlineKeyboardButton("⬅️ Previous", callback_data=f"page_{current_page - 1}")])
-    if end_index < len(job_posts):
-        keyboard.append([InlineKeyboardButton("Next ➡️", callback_data=f"page_{current_page + 1}")])
+    if page > 0:
+        keyboard.append([InlineKeyboardButton("⬅️ Previous", callback_data=f"page_{page - 1}")])
+    if end < len(job_posts):
+        keyboard.append([InlineKeyboardButton("Next ➡️", callback_data=f"page_{page + 1}")])
     keyboard.append([InlineKeyboardButton("Cancel", callback_data="cancel")])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Edit or send the message
-    if 'shortlist_message_id' in context.user_data:
-        message_id = context.user_data['shortlist_message_id']
-        await context.bot.edit_message_text(
-            chat_id=update.effective_chat.id,
-            message_id=message_id,
-            text=f"Page {current_page + 1}/{(len(job_posts) + PAGE_SIZE - 1) // PAGE_SIZE}:\nSelect a job to shortlist applicants for:",
-            reply_markup=reply_markup
-        )
+    # Get the text of the current message
+    page_text = f"Page {page + 1}/{(len(job_posts) + PAGE_SIZE - 1) // PAGE_SIZE}:\nSelect a job to shortlist applicants for:"
+
+    # Handle message creation or editing
+    message_id = context.user_data.get('shortlist_message_id')
+    if message_id:
+        try:
+            # Attempt to edit the existing message
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=page_text,
+                reply_markup=reply_markup
+            )
+        except telegram.error.BadRequest as e:
+            if "Message to edit not found" in str(e):
+                logger.warning("Message to edit not found. Creating a new message.")
+                # Clear invalid message ID
+                context.user_data['shortlist_message_id'] = None
+                # Create a new message
+                new_message = await update.message.reply_text(page_text, reply_markup=reply_markup)
+                context.user_data['shortlist_message_id'] = new_message.message_id
+            else:
+                raise  # Re-raise other exceptions
     else:
-        shortlist_message = await update.message.reply_text(
-            f"Page {current_page + 1}/{(len(job_posts) + PAGE_SIZE - 1) // PAGE_SIZE}:\nSelect a job to shortlist applicants for:",
-            reply_markup=reply_markup
-        )
-        context.user_data['shortlist_message_id'] = shortlist_message.message_id
+        # Create a new message if no valid message ID exists
+        new_message = await update.message.reply_text(page_text, reply_markup=reply_markup)
+        context.user_data['shortlist_message_id'] = new_message.message_id
 
     return SELECT_JOB
+
+
 
 
 # Handle navigation between pages
@@ -1794,10 +1797,7 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await query.edit_message_text("Action canceled.")
         return ConversationHandler.END
 
-    return await show_job_page(update, context)
-
-
-
+    return await shortlist(update, context, page=page)
 
 
 # Function to handle job selection
@@ -1831,7 +1831,7 @@ async def select_job(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         # Display available jobs
         keyboard = [[InlineKeyboardButton(f"{job[1]} - {job[2]}", callback_data=str(job[0]))] for job in job_posts]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await callback_query.message.reply_text("Select a job to view applicants for:", reply_markup=reply_markup)
+        await callback_query.message.edit_text("Select a job to view applicants for:", reply_markup=reply_markup)
         return SELECT_JOB
 
     elif callback_query.data == "cancel":
@@ -1898,7 +1898,6 @@ async def select_job(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             keyboard = []
             reply_markup = InlineKeyboardMarkup(keyboard)
             shortlists = context.user_data.get('shortlists',0)
-            # Add Shortlist button if shortlists are available
             
             # Add Shortlist button if shortlists are available
             if shortlists > 0:
@@ -2149,7 +2148,7 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Retrieve the remaining shortlists
     shortlists = context.user_data.get('shortlists', 0)
     
-    await callback_query.message.reply_text(
+    await callback_query.message.edit_text(
         f"You have completed the shortlisting process.\n\n"
         f"You have a total of <b>{shortlists} shortlists</b> remaining.\n\n"
         "If you need more shortlists, please purchase more at /purchase_shortlists.",
