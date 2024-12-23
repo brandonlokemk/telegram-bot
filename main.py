@@ -2069,6 +2069,8 @@ async def shortlist_cancel(update: Update, context: CallbackContext) -> int:
     logger.info("Entered cancel function")
     callback_query = update.callback_query
     logger.info(f"CALLBACK QUERY: {callback_query}")
+    if 'shortlist_message_id' in context.user_data:
+        del context.user_data['shortlist_message_id']
     await callback_query.answer()
     await callback_query.message.edit_text("Shortlist purchasing canceled.")
     return ConversationHandler.END
@@ -3990,7 +3992,7 @@ async def main() -> None:
                 CallbackQueryHandler(handle_navigation, pattern=r"^page_\d+$"),
                 CallbackQueryHandler(select_job, pattern='^\d+$'),  # Job selection
                 CallbackQueryHandler(select_job, pattern='^proceed$'),  # Proceed action
-                CallbackQueryHandler(select_job, pattern='^cancel$')  # Cancel action
+                CallbackQueryHandler(shortlist_cancel, pattern='^cancel$')  # Cancel action
             ],
             SHOW_APPLICANTS: [
                 CallbackQueryHandler(shortlist_applicant, pattern='^shortlist\|'),
