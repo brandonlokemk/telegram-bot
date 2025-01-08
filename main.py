@@ -1895,6 +1895,14 @@ async def select_job(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
             # Build keyboard based on shortlist availability. If 0 shortlists, no shortlist button shld be displayed
             # Initialize reply_markup with default empty state
+
+            # Retreiving shortlists from db
+            chat_id = context.user_data['chat_id']
+            query_shortlists = "SELECT shortlist FROM shortlist_balance WHERE chat_id = :chat_id"
+            shortlists = await safe_get_db(query_shortlists, {"chat_id": chat_id})
+            context.user_data['shortlists'] = shortlists[0][0]
+
+
             keyboard = []
             reply_markup = InlineKeyboardMarkup(keyboard)
             shortlists = context.user_data.get('shortlists',0)
